@@ -246,7 +246,18 @@ async function runQualification({ request, page, collector, browserInstanceId, b
         // can be reconciled later. Neither auth bytes nor raw exceptions fit.
         const failed = { protocol_version: 1, request_id: uuid(), operation: 'request_failed', payload, ...fence };
         await persistFailure(failed);
-        await request(failed);
+        try {
+          const ack = await request(failed);
+          control(ack);
+          keys(ack, ['protocol_version', 'request_id', 'ok', 'result']);
+          if (ack.protocol_version !== 1 || ack.request_id !== failed.request_id || ack.ok !== true) reject();
+          keys(ack.result, ['recorded']);
+          if (ack.result.recorded !== true) reject();
+        } catch {
+          // Rejection, malformed replies and transport loss all leave durable
+          // recording uncertain. Keep the original saved receipt; never retry.
+          throw new ProbeClientError('dispatch_uncertain');
+        }
         throw new ProbeClientError('probe_failed');
       }
       keys(result, ['ok', 'raw_bytes', 'chunk_count', 'sha256']);

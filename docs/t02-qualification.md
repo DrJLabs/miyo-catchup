@@ -230,17 +230,22 @@ collector HTTP, allows one explicit gesture only, and never unlocks capture.
 See the [stock implementation comparison](design-evidence.md#read-only-stock-implementation-comparison)
 for why Miyo's different credential path was not substituted for this boundary.
 
-## Remaining A2 gate
+## Completed bounded A2 proof and remaining qualification
 
-The strict session qualification slice does not infer a context ID from a display
-label or configuration. Before a strictly bound session/body proof, establish
-the current session response fields/content type, a reliable observed effective
-workspace/context source, and the read-only principal-to-Miyo-account mapping.
-The local connection pass and visible personal-account UI are not substitutes.
-Session-only completion means a sanitized session receipt, not body capture,
-validated Miyo mapping, or completion of T02. A later body proof requires a
-separately scoped private root and the reviewed session/body adapter; a session-only
-root must never be promoted or reset into it.
+The approved selected-body route completed T02 using the recorded personal
+principal, backend account and fresh token account scope, matched against the
+historical Miyo account. Its session/body response contract and exact staged
+bytes were checked in the completed one-conversation proof. It did not infer
+visible-workspace attestation from a display label or configured context.
+The local connection pass and personal-account UI alone remain insufficient
+evidence. Do not repeat the completed proof, clear its fence or promote/reset
+a session-only root into a body-capture root.
+
+The legacy strict page session/body path remains synthetic-only. Qualifying
+that distinct path would require observed effective workspace/context evidence
+and separately authorized scope; it is not a remaining gate for the
+completed background proof. Session-only completion remains a sanitized
+session receipt, not body capture or independent completion of T02.
 
 The operator-approved background setup inspection resolves the initial
 unknown-context bootstrap separately. It starts with a unique historical Miyo
@@ -258,31 +263,21 @@ The receiver ends at `background_setup_complete`, the UI at
 preserved. This records a snapshot, not an atomic cross-process guarantee that
 the account cannot change afterward.
 
-Before a live proof:
+The completed proof used an explicitly approved private extension/native-host
+pairing, pinned launcher, foreground OS-locked receiver and separate session
+and body permits. The selected route creates no owned tab. Its retained
+artifacts and receipts demonstrate exact byte counts/digests and token
+non-export within that bounded route, not a general installed release,
+filesystem/power-loss or lifecycle qualification. Private identifiers, account
+evidence and captured bytes stay out of Git, public CI, issues and PRs.
 
-1. Authorize the exact custom extension/native-host pairing and select **one**
-   conversation privately. Keep its ID, account evidence and captured bytes out
-   of Git, public CI, issues and PRs. Native Miyo sync stays disconnected.
-2. Establish the current session-principal-to-Miyo-account mapping and observed
-   personal/default workspace context. Qualify the actual session/body shape,
-   content type, fixed request requirements and compatibility fingerprint. A
-   configured context is not observed evidence; do not add guessed headers or
-   alternate authentication/profile mechanisms.
-3. Add the reviewed adapter to the prepared MV3 package. Assemble a reviewed
-   private release, exact extension-ID registration, pinned launcher and
-   foreground receiver under a process-lifetime OS `flock`. The transport source
-   and launcher renderer do not install or register themselves. Verify the full
-   release-path ancestor chain; do not launch installed code from a checkout
-   with group/other-writable ancestors or relax those checks for convenience.
-4. Exercise one separately permitted session check and the selected body. Prove
-   the exact private-staging digest, token non-export, context binding, response
-   limits, lost-port handling, and owned-document lifecycle. Retain private
-   evidence and explicitly record browser-generated traffic outside collector
-   pacing. Do not run a catalog scan or publish chats.
-
-Only successful A2 evidence closes T02. T03 and the larger importer/scheduler
-remain downstream. No change here authorizes Miyo writes, service activation,
-daily scheduling, reconnect/resync, or stock-extension modification.
+T03's durable coordinator and general crash/reconciliation lifecycle are next.
+T04 still owns catalog fixtures, pagination and terminal-cursor qualification;
+any larger live read needs fresh A2 scope. Broader release qualification,
+visible-workspace/general capture, Miyo import and scheduling are not completed
+by this proof. Public configuration remains disabled and Native Miyo sync stays
+disconnected. No change here authorizes Miyo writes, service activation, daily
+scheduling, reconnect/resync or stock-extension modification.
 
 ### Retained evidence is not a live adapter
 
@@ -297,8 +292,9 @@ not original HTTP response bytes or complete content-type/header evidence. Their
 field shapes can inform synthetic fixture design, but cannot establish a byte-exact
 wire fingerprint, current session schema, or live context mapping. No private
 identifiers, conversation text, authentication material, or recovery artifacts
-were copied into the repository. The production collector remains disabled until
-the selected conversation/profile and current context contract are qualified.
+were copied into the repository. The selected route's completed proof above is
+separate evidence; the production collector remains disabled pending the
+broader collection, lifecycle, import and activation gates.
 
 ## Official API basis, not qualification evidence
 

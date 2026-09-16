@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createNativeClient, runProbe, runSessionCheck, runSetupInspection,
+import { createNativeClient, ProbeClientError, runProbe, runSessionCheck, runSetupInspection,
   runBackgroundSetupInspection, runBackgroundSelectedProbe } from '../extension/probe-client.mjs';
 import { assertReply, assertRequest, MAX_RAW_CHUNK_BYTES } from '../src/contracts.mjs';
 
@@ -9,8 +9,8 @@ const binding = { principal_id: 'synthetic-user', context_id: 'synthetic-persona
 const browserInstanceId = randomUUID();
 const documentId = 'synthetic-document';
 
-function selectedFixture() {
-  const fixture = syntheticProbe();
+function selectedFixture(overrides = {}) {
+  const fixture = syntheticProbe(overrides);
   fixture.options.collector = { ...fixture.options.page, collectorInstanceId: randomUUID() };
   delete fixture.options.collector.documentId;
   delete fixture.options.page;
@@ -217,6 +217,60 @@ function backgroundFixture(overrides = {}) {
   delete fixture.options.page;
   return fixture;
 }
+
+const failureRoutes = [
+  [runProbe, syntheticProbe],
+  [runSessionCheck, syntheticProbe],
+  [runSetupInspection, (options) => syntheticProbe({ setup: true, ...options })],
+  [runBackgroundSetupInspection, backgroundFixture],
+  [runBackgroundSelectedProbe, selectedFixture],
+];
+const rateLimited = { failure_class: 'rate_limited', http_status: 429, retry_after: '3601' };
+
+test('AC06: failure recording requires a positive, correlated, exact native ACK on every route', async () => {
+  const invalidAcks = [
+    (reply) => ({ protocol_version: 1, request_id: reply.request_id, ok: false,
+      error: { code: 'invalid_request' } }),
+    (reply) => ({ ...reply, result: {} }),
+    (reply) => ({ ...reply, result: { recorded: false } }),
+    (reply) => ({ ...reply, result: { recorded: true, unexpected: true } }),
+    (reply) => ({ ...reply, request_id: randomUUID() }),
+    (reply) => ({ ...reply, protocol_version: 2 }),
+    (reply) => ({ ...reply, error: { code: 'invalid_request' } }),
+    () => null,
+    () => { throw new Error('private-transport-detail'); },
+    () => { throw new ProbeClientError('invalid_probe_message'); },
+  ];
+  for (const [run, makeFixture] of failureRoutes) {
+    for (const invalidAck of invalidAcks) {
+      const f = makeFixture({ failure: rateLimited });
+      const request = f.options.request;
+      f.options.request = async (message) => {
+        if (message.operation === 'request_failed') assert.deepEqual(f.stored, [message]);
+        const reply = await request(message);
+        return message.operation === 'request_failed' ? invalidAck(reply) : reply;
+      };
+      await assert.rejects(run(f.options), { code: 'dispatch_uncertain' });
+      assert.deepEqual(f.stored, f.messages.filter((m) => m.operation === 'request_failed'));
+      assert.equal(f.stored.length, 1);
+      assert.deepEqual(f.stored[0].payload, rateLimited);
+      assert.equal(f.messages.filter((m) => m.operation === 'request_permit').length, 1);
+      assert.deepEqual(f.pageCalls, ['dispatch', 'abort']);
+      assert.equal(f.messages.some((m) => ['result_chunk', 'commit_result'].includes(m.operation)), false);
+    }
+  }
+});
+
+test('AC06: only an acknowledged failure reports probe_failed, without retrying or replacing its receipt', async () => {
+  for (const [run, makeFixture] of failureRoutes) {
+    const f = makeFixture({ failure: rateLimited });
+    await assert.rejects(run(f.options), { code: 'probe_failed' });
+    assert.deepEqual(f.stored, f.messages.filter((m) => m.operation === 'request_failed'));
+    assert.equal(f.stored.length, 1);
+    assert.equal(f.messages.filter((m) => m.operation === 'request_permit').length, 1);
+    assert.deepEqual(f.pageCalls, ['dispatch', 'abort']);
+  }
+});
 
 test('background setup uses a distinct capability and collector identity with one permit', async () => {
   const fixture = backgroundFixture();

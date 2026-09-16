@@ -1350,6 +1350,19 @@ rejections were checked against both actual bridge paths with synthetic Chrome
 APIs and strict unhandled-rejection mode: late failures are already observed by
 the race and neither escapes. No dummy catch or browser deployment is needed.
 
+The final review closeout reproduced a failure-receipt acknowledgement gap.
+Every qualification route now reports `probe_failed` only after an exact,
+correlated positive `request_failed` reply with `recorded: true`. Negative,
+malformed or lost acknowledgements leave `dispatch_uncertain`; the original
+receipt is persisted before forwarding, with no retry, replacement request ID
+or additional permit. Regressions exercise all five page/background entry
+routes. Package engine metadata and the repository check now require exactly
+Node 22.23.2, matching the existing runtime guards. The qualification and
+architecture docs distinguish the completed selected-route proof from broader
+unqualified capture. All 314 offline tests, repository checks and whitespace
+checks pass. These are source-only corrections; no private package, browser,
+receiver, retained proof or Miyo runtime was changed.
+
 ## 14. Evidence and primary references
 
 The L-series labels preserve traceability to the original design observations.

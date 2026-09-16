@@ -11,8 +11,9 @@ the recorded personal-account package, not as a general capture qualification.
 
 This describes the target design. T01 implements the shared contracts,
 framing and local safety/durability foundations. T02 source modules exercise
-the page/native/private-staging boundaries with synthetic inputs; the installed
-runtime flow below remains unqualified and the larger worker/importer absent. The
+the page/native/private-staging boundaries with synthetic inputs, in addition
+to the bounded selected-route live proof above. The broader installed
+capture/worker flow below remains unqualified and the larger worker/importer absent. The
 [implementation plan](implementation-plan.md) owns the detailed contract.
 
 ```text
