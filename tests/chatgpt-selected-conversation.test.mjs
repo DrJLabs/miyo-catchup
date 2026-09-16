@@ -75,6 +75,18 @@ test('rejects another ID, batch/auth envelopes, missing contract fields and inva
   assert.equal(validateSelectedConversation(conversation(), null), false);
 });
 
+test('rejects credential-shaped envelope names despite case and separator changes', () => {
+  for (const key of ['token', 'credentials', 'Authorization', 'ACCESS_TOKEN',
+    'Refresh-Token', 'id.token', 'CookieJar', 'session', 'SessionData', 'authentication',
+    'auth', 'password', 'clientSecret', 'api_key', 'private-key', 'Ａuthorization']) {
+    const value = { ...conversation(), [key]: { value: 'synthetic-private-sentinel' } };
+    assert.equal(validateSelectedConversation(value, conversationId), false, key);
+  }
+  const value = conversation();
+  value.mapping['user-node'].message.content.parts = ['A conversation can discuss tokens and passwords.'];
+  assert.equal(validateSelectedConversation(value, conversationId), true);
+});
+
 test('rejects partial, cyclic, inconsistent and duplicated graph relationships', () => {
   for (const mutate of [
     (v) => { v.mapping['user-node'].id = 'wrong-node'; },

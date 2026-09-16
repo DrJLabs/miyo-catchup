@@ -10,7 +10,7 @@ export const BACKGROUND_SETUP_CONTRACT_FINGERPRINT =
   'eadb4f000ea3729d63581afb54fdc7a5d1dcf1855902ecd95a9a5b255047664d';
 export const BACKGROUND_SELECTED_ADAPTER_ID = 'chatgpt-background-selected-2026-09-16';
 export const BACKGROUND_SELECTED_CONTRACT_FINGERPRINT =
-  'f13de479a8cab160200fbda33af075f594176bad26d15a26e5047bba82e1da87';
+  'e0af1da831504a725cee115a6391c6cbd44538db10adb82415925c5fd1289dac';
 
 // The public package has no configured account, context, conversation, or
 // browser instance. Keeping this undefined also leaves capture disabled.

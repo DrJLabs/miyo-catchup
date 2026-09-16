@@ -6,10 +6,14 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const MAX_NODES = 100_000;
 const MAX_TITLE_CHARS = 65_536;
 const MAX_EPOCH_SECONDS = 8_640_000_000_000;
-const AUTH_ENVELOPE_KEYS = new Set([
-  'accessToken', 'access_token', 'refresh_token', 'id_token',
-  'authorization', 'cookie', 'cookies',
-]);
+// Top-level authentication envelopes are not conversation metadata. Fold case,
+// compatibility characters and separators before rejecting credential families;
+// a renamed envelope must not pass merely because it is not an exact spelling.
+const AUTH_ENVELOPE_KEY = /auth|token|credential|cookie|password|passwd|secret|apikey|privatekey|session/;
+
+function credentialEnvelopeKey(key) {
+  return AUTH_ENVELOPE_KEY.test(key.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]/g, ''));
+}
 
 function identifier(value) { return typeof value === 'string' && ID.test(value); }
 
@@ -46,7 +50,7 @@ export function selectedConversationRequest(conversationId) {
 export function validateSelectedConversation(value, expectedConversationId) {
   try {
     if (!identifier(expectedConversationId) || !record(value)
-      || Object.keys(value).some((key) => AUTH_ENVELOPE_KEYS.has(key))
+      || Object.keys(value).some(credentialEnvelopeKey)
       || value.conversation_id !== expectedConversationId
       || typeof value.title !== 'string' || value.title.length > MAX_TITLE_CHARS
       || !timestamp(value.create_time) || !timestamp(value.update_time)

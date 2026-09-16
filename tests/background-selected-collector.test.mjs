@@ -155,6 +155,8 @@ test('token age, expiry and clock discontinuity block without refreshing or fetc
 
 test('wrong ID, malformed UTF8, auth envelopes and oversized body stop before transfer', async (t) => {
   for (const invalid of [{ ...body(), conversation_id: 'wrong' }, { ...body(), accessToken: 'PRIVATE' },
+    ...['token', 'credentials', 'Authorization', 'ACCESS_TOKEN', 'Refresh-Token', 'CookieJar', 'api_key']
+      .map((key) => ({ ...body(), [key]: 'PRIVATE_ENVELOPE_SENTINEL' })),
     Uint8Array.of(255), new Uint8Array(64 * 1024 * 1024 + 1)]) {
     let calls = 0;
     const h = harness(t, { fetchImpl: async () => response(++calls === 1 ? session() : invalid,

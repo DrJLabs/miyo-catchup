@@ -1327,6 +1327,23 @@ fallback was declined because the qualified transport requires Linux ownership,
 private modes, Unix sockets and kernel locks; bypassing UID verification is not
 a portability qualification.
 
+The next released batch found two additional hardening gaps. The shared
+selected-response validator now rejects credential-shaped top-level fields
+after case, separator and Unicode compatibility folding, rather than relying
+on a short exact-case list. Conversation text is not scanned or rewritten.
+The reviewed contract fingerprint changes accordingly. Read-only validation
+of the retained private body passes the stricter check and original digest;
+no new HTTP request, receiver start, package update or state write was made.
+Terminal body-probe recovery now checks both the session and body artifacts,
+including private paths, sizes and digests, and fences missing/corrupt evidence.
+Setup-only roots still check their sole session artifact. Synthetic regressions
+cover the browser rejection boundary and terminal recovery. Suggested lexical
+path rewrites were unnecessary because the existing helper rejects all such
+aliases; the native output error guard remains required for late/cancelled
+write failures on its dedicated process-lifetime stream.
+The combined second-review candidate passes all 312 offline tests, repository
+checks and whitespace checks; no live deployment was performed.
+
 ## 14. Evidence and primary references
 
 The L-series labels preserve traceability to the original design observations.

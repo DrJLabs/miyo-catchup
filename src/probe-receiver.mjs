@@ -392,10 +392,15 @@ export function createProbeReceiver(options = {}) {
     state.stage = 'blocked';
   }
   const artifactNames = readdirSync(artifacts);
-  const expectedArtifactPath = ['setup_complete', 'background_setup_complete'].includes(state.stage)
-    ? state.session?.artifact_path : state.body?.artifact_path;
+  const setupTerminalStage = ['setup_complete', 'background_setup_complete'].includes(state.stage);
+  const bodyTerminalStage = ['probe_complete', 'background_probe_complete'].includes(state.stage);
+  const terminalEvidence = setupTerminalStage ? [state.session]
+    : bodyTerminalStage ? [state.session, state.body] : [];
+  const expectedArtifactPaths = new Set(terminalEvidence
+    .map((evidence) => evidence?.artifact_path).filter((path) => typeof path === 'string'));
   const hasOrphanArtifact = artifactNames.some((name) => name.endsWith('.json')) &&
-    !(expectedArtifactPath && artifactNames.includes(expectedArtifactPath.split('/').pop()));
+    !artifactNames.every((name) => !name.endsWith('.json') || [...expectedArtifactPaths]
+      .some((path) => path.split('/').pop() === name));
   if (hasOrphanArtifact && terminalStages.includes(state.stage)) {
     state.blocker = 'recovery_evidence_missing';
     state.stage = 'blocked';
@@ -404,15 +409,21 @@ export function createProbeReceiver(options = {}) {
     state.stage = 'blocked';
   }
   if (terminalStages.includes(state.stage)) {
-    const evidence = ['setup_complete', 'background_setup_complete'].includes(state.stage) ? state.session : state.body;
-    let artifact = null;
-    try {
-      if (evidence?.artifact_path) {
-        privatePath(root, evidence.artifact_path, 'probe artifact', { allowMissingLeaf: false, trustedBoundary });
-        artifact = readBoundedFile(evidence.artifact_path);
+    let validEvidence = terminalEvidence.length > 0
+      && (terminalEvidence.length < 2 || new Set(terminalEvidence.map((evidence) => evidence?.artifact_path)).size === terminalEvidence.length);
+    for (const evidence of terminalEvidence) {
+      let artifact = null;
+      try {
+        if (evidence?.artifact_path) {
+          privatePath(root, evidence.artifact_path, 'probe artifact', { allowMissingLeaf: false, trustedBoundary });
+          artifact = readBoundedFile(evidence.artifact_path);
+        }
+      } catch { artifact = null; }
+      if (!artifact || artifact.length !== evidence?.raw_bytes || digest(artifact) !== evidence?.sha256) {
+        validEvidence = false;
       }
-    } catch { artifact = null; }
-    if (!artifact || artifact.length !== evidence?.raw_bytes || digest(artifact) !== evidence?.sha256) {
+    }
+    if (!validEvidence) {
       state.blocker = 'recovery_evidence_missing';
       state.stage = 'blocked';
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
@@ -499,6 +499,96 @@ test('T02 selected background scope requires its capability, uses a separate bod
   }), /scope|binding|conversation|account_id/);
 });
 
+test('T02 selected background body-terminal reopen validates the committed session artifact', (t) => {
+  for (const mutation of ['missing', 'corrupt']) {
+    const root = temporaryRoot(t);
+    const time = clockFixture();
+    const receiver = createProbeReceiver({
+      root, trustedBoundary: root, binding: selectedBinding, conversationId,
+      clock: time.clock, scope: 'background-selected-conversation', ownership: () => true,
+    });
+    const session = selectedBodySessionStart(receiver);
+    const sessionRaw = sendJson(receiver, session, {
+      principal_id: selectedBinding.principal_id, context_id: selectedBinding.context_id,
+    });
+    assert.equal(commit(receiver, session, sessionRaw.bytes, sessionRaw.digest).ok, true);
+    time.value.wall += 10_000;
+    time.value.monotonic += 10_000;
+    const claim = receiver.request(makeRequest('claim_work', {
+      browser_instance_id: browser, principal_id: selectedBinding.principal_id,
+      context_id: selectedBinding.context_id,
+    }));
+    const lease = claim.result.lease;
+    const fields = { run_id: lease.run_id, attempt_id: lease.attempt_id, lease_generation: lease.lease_generation };
+    const permit = receiver.request(makeRequest('request_permit', { work_unit_id: 'body' }, fields));
+    assert.equal(permit.ok, true);
+    assert.equal(receiver.request(makeRequest('dispatch_started', {
+      browser_instance_id: browser, collector_instance_id: collectorInstanceId,
+    }, { ...fields, permit_id: permit.result.permit_id })).ok, true);
+    const body = sendJson(receiver, { fields, permit: permit.result }, {
+      conversation_id: conversationId, title: 'selected body',
+      create_time: 1_700_000_000, update_time: 1_700_000_001,
+      current_node: 'root-node',
+      mapping: { 'root-node': { id: 'root-node', parent: null, children: [], message: null } },
+    });
+    assert.equal(commit(receiver, { fields, permit: permit.result }, body.bytes, body.digest).ok, true);
+    receiver.close();
+
+    const stateDb = new DatabaseSync(join(root, 'probe-state.db'));
+    const stored = JSON.parse(stateDb.prepare('SELECT state FROM probe_state WHERE id = 1').get().state);
+    stateDb.close();
+    if (mutation === 'missing') unlinkSync(stored.session.artifact_path);
+    else writeFileSync(stored.session.artifact_path, Buffer.from('corrupted-session-artifact'));
+    const reopened = createProbeReceiver({
+      root, trustedBoundary: root, binding: selectedBinding, conversationId,
+      ownership: () => true, scope: 'background-selected-conversation',
+    });
+    assert.equal(reopened.snapshot().blocker, 'recovery_evidence_missing');
+    assert.equal(reopened.snapshot().background_probe_complete, false);
+    reopened.close();
+  }
+});
+
+test('T02 selected background native commit rejects credential-shaped top-level envelopes', (t) => {
+  const root = temporaryRoot(t);
+  const time = clockFixture();
+  const receiver = createProbeReceiver({
+    root, trustedBoundary: root, binding: selectedBinding, conversationId,
+    clock: time.clock, scope: 'background-selected-conversation', ownership: () => true,
+    validateBody: () => true,
+  });
+  t.after(() => receiver.close());
+  const session = selectedBodySessionStart(receiver);
+  const sessionRaw = sendJson(receiver, session, {
+    principal_id: selectedBinding.principal_id, context_id: selectedBinding.context_id,
+  });
+  assert.equal(commit(receiver, session, sessionRaw.bytes, sessionRaw.digest).ok, true);
+  time.value.wall += 10_000;
+  time.value.monotonic += 10_000;
+  const claim = receiver.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: selectedBinding.principal_id,
+    context_id: selectedBinding.context_id,
+  }));
+  const lease = claim.result.lease;
+  const fields = { run_id: lease.run_id, attempt_id: lease.attempt_id, lease_generation: lease.lease_generation };
+  const permit = receiver.request(makeRequest('request_permit', { work_unit_id: 'body' }, fields));
+  assert.equal(permit.ok, true);
+  assert.equal(receiver.request(makeRequest('dispatch_started', {
+    browser_instance_id: browser, collector_instance_id: collectorInstanceId,
+  }, { ...fields, permit_id: permit.result.permit_id })).ok, true);
+  const body = sendJson(receiver, { fields, permit: permit.result }, {
+    conversation_id: conversationId, title: 'selected body',
+    create_time: 1_700_000_000, update_time: 1_700_000_001,
+    current_node: 'root-node',
+    mapping: { 'root-node': { id: 'root-node', parent: null, children: [], message: null } },
+    Authorization: 'synthetic',
+  });
+  const rejected = commit(receiver, { fields, permit: permit.result }, body.bytes, body.digest);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error.code, 'invalid_body');
+  assert.equal(receiver.snapshot().blocker, 'invalid_body');
+});
+
 test('T02 session transfers must be canonical UTF-8 JSON in every scope', (t) => {
   for (const [scope, scopeBinding, validateBody] of [
     ['conversation', binding, () => true],
@@ -722,6 +812,54 @@ test('T02 completed artifact reopens as probe_complete, while binding changes fa
     root, trustedBoundary: root, binding: { ...binding, context_id: 'changed-context' },
     conversationId, ownership: () => true, validateBody: () => true,
   }), /binding|conversation/i);
+});
+
+test('T02 body-terminal reopen validates the committed session artifact as well as the body', (t) => {
+  for (const mutation of ['missing', 'corrupt']) {
+    const root = temporaryRoot(t);
+    const time = clockFixture();
+    const receiver = createProbeReceiver({
+      root, trustedBoundary: root, binding, conversationId, clock: time.clock,
+      ownership: () => true, validateBody: () => true,
+    });
+    const session = sessionStart(receiver);
+    const sessionRaw = sendJson(receiver, session, {
+      principal_id: binding.principal_id, context_id: binding.context_id,
+    });
+    assert.equal(commit(receiver, session, sessionRaw.bytes, sessionRaw.digest).ok, true);
+    time.value.wall += 10_000;
+    time.value.monotonic += 10_000;
+    const claim = receiver.request(makeRequest('claim_work', {
+      browser_instance_id: browser, principal_id: binding.principal_id, context_id: binding.context_id,
+    }));
+    const lease = claim.result.lease;
+    const fields = { run_id: lease.run_id, attempt_id: lease.attempt_id, lease_generation: lease.lease_generation };
+    const permit = receiver.request(makeRequest('request_permit', { work_unit_id: 'body' }, fields));
+    assert.equal(permit.ok, true);
+    assert.equal(receiver.request(makeRequest('dispatch_started', {
+      browser_instance_id: browser, document_id: documentId,
+    }, { ...fields, permit_id: permit.result.permit_id })).ok, true);
+    const body = sendJson(receiver, { fields, permit: permit.result }, {
+      conversation_id: conversationId, messages: [{ role: 'user', content: mutation }],
+    });
+    assert.equal(commit(receiver, { fields, permit: permit.result }, body.bytes, body.digest).ok, true);
+    receiver.close();
+
+    const stateDb = new DatabaseSync(join(root, 'probe-state.db'));
+    const stored = JSON.parse(stateDb.prepare('SELECT state FROM probe_state WHERE id = 1').get().state);
+    stateDb.close();
+    const sessionPath = stored.session.artifact_path;
+    if (mutation === 'missing') unlinkSync(sessionPath);
+    else writeFileSync(sessionPath, Buffer.from('corrupted-session-artifact'));
+
+    const reopened = createProbeReceiver({
+      root, trustedBoundary: root, binding, conversationId, ownership: () => true,
+      validateBody: () => true,
+    });
+    assert.equal(reopened.snapshot().blocker, 'recovery_evidence_missing');
+    assert.equal(reopened.snapshot().probe_complete, false);
+    reopened.close();
+  }
 });
 
 test('T02 clock discontinuity, boot change and monotonic expiry block dispatch', (t) => {
