@@ -1,7 +1,8 @@
 # Security and private data
 
-The project has offline foundations and source-only T02 probe modules; no release
-is qualified for production use.
+The project has offline foundations and a bounded, live-qualified T02
+one-conversation browser-to-private-staging proof; no release is qualified for
+general capture, Miyo import or production use.
 
 Do not put vulnerabilities involving credentials or private data into public
 issues. Use GitHub private vulnerability reporting if it is available for the
@@ -12,7 +13,7 @@ production databases or raw logs in an initial report.
 ## Required boundaries
 
 - Ordinary page-collector authentication material remains in the browser page
-  context. The separately approved background setup path may hold short-lived
+  context. The separately approved background setup and selected-body paths may hold short-lived
   session credential material in extension memory only; it has no token cache,
   Cookies API access or native credential export.
 - The native host permits only the paired custom extension; no HTTP listener.
@@ -31,6 +32,13 @@ production databases or raw logs in an initial report.
   retained rather than retried or overwritten.
 - One worker owns pacing, durable cooldowns and publication. Unknown versions,
   unsafe paths, identity conflicts and uncertain dispatch fail closed.
+- The separate `background-selected-conversation` proof uses a fresh session
+  token bound to the pinned personal account for one cookie-free body GET. The
+  token is held for at most 60 seconds (never beyond expiry), dropped at body
+  dispatch, and never cached or exported. Separate durable permits, independent
+  fences/roots and exact selected-ID validation are required. There is no cookie
+  fallback, refresh, automatic retry or claim about the visible tab's workspace.
+  Only validated bounded conversation bytes enter private staging, not Miyo.
 - Stock Miyo sync and existing native-host registrations remain untouched.
 - Only Miyo's watcher dispatches indexing. No automatic repair or restart path.
 

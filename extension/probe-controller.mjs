@@ -2,14 +2,17 @@ import { openOwnedPage, OWNED_DOCUMENT_KEY, inspectPageStartup,
   STARTUP_DIAGNOSTIC_DOCUMENT_KEY, inspectPageStartupV2,
   STARTUP_DIAGNOSTIC_V2_DOCUMENT_KEY, STARTUP_DIAGNOSTIC_V2_FAILURE_CODES } from './browser-bridge.mjs';
 import { createNativeClient, ProbeClientError, runProbe, runSetupInspection,
-  runBackgroundSetupInspection } from './probe-client.mjs';
+  runBackgroundSetupInspection, runBackgroundSelectedProbe } from './probe-client.mjs';
 import { createBackgroundSetupCollector } from './background-setup-collector.mjs';
+import { createBackgroundSelectedCollector } from './background-selected-collector.mjs';
 import { checkNativeConnection, connectionResult } from './connection-check.mjs';
 import { SETUP_ADAPTER_ID, SETUP_CONTRACT_FINGERPRINT,
-  BACKGROUND_SETUP_ADAPTER_ID, BACKGROUND_SETUP_CONTRACT_FINGERPRINT } from './qualification-config.mjs';
+  BACKGROUND_SETUP_ADAPTER_ID, BACKGROUND_SETUP_CONTRACT_FINGERPRINT,
+  BACKGROUND_SELECTED_ADAPTER_ID, BACKGROUND_SELECTED_CONTRACT_FINGERPRINT } from './qualification-config.mjs';
 
-// T02 deliberately ships no full-capture adapter. The separate setup adapter
-// requires private constructor configuration and cannot be enabled by storage.
+// T02 deliberately ships no general capture adapter. The background setup and
+// selected-body qualifications require private constructor configuration and
+// cannot be enabled by storage.
 // The controller defaults to an empty registry and never accepts endpoints, headers,
 // executable code, or a caller-selected adapter implementation.
 export const CONFIG_KEY = 't02_probe_config';
@@ -21,12 +24,15 @@ export const STARTUP_DIAGNOSTIC_V2_FENCE_KEY = 't02_startup_diagnostic_fence_v2'
 export const BACKGROUND_SETUP_FENCE_KEY = 't02_background_setup_start_fence';
 export const BACKGROUND_SETUP_STATUS_KEY = 't02_background_setup_status';
 export const BACKGROUND_SETUP_PENDING_FAILURE_KEY = 't02_background_setup_pending_failure';
+export const BACKGROUND_SELECTED_FENCE_KEY = 't02_background_selected_start_fence';
+export const BACKGROUND_SELECTED_STATUS_KEY = 't02_background_selected_status';
+export const BACKGROUND_SELECTED_PENDING_FAILURE_KEY = 't02_background_selected_pending_failure';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA = /^[a-f0-9]{64}$/;
 const STATES = new Set(['unconfigured', 'ready', 'blocked', 'starting', 'running', 'probe_complete',
-  'setup_inspection_complete', 'background_setup_inspection_complete', 'failed', 'uncertain']);
+  'setup_inspection_complete', 'background_setup_inspection_complete', 'background_probe_complete', 'failed', 'uncertain']);
 const STARTUP_FAILURES = new Set(['page_tab_failed', 'page_load_failed', 'page_binding_failed',
   'page_initialization_failed', 'page_context_unavailable', 'page_storage_failed']);
 const DIAGNOSTICS = new Set([...STARTUP_FAILURES, 'legacy_before_tab_recorded',
@@ -35,12 +41,12 @@ const REASONS = new Set([
   'none', 'disabled', 'configuration_required', 'qualification_required',
   'storage_unavailable', 'busy', 'probe_complete', 'probe_failed',
   'dispatch_uncertain', 'document_lost', 'native_unavailable', 'invalid_message',
-  'setup_inspection_complete', 'background_setup_inspection_complete',
+  'setup_inspection_complete', 'background_setup_inspection_complete', 'background_probe_complete',
   ...STARTUP_FAILURES,
 ]);
 const IN_FLIGHT = new WeakSet();
 const FENCE_STATES = new Set(['starting', 'running', 'probe_complete', 'setup_inspection_complete',
-  'background_setup_inspection_complete', 'failed', 'uncertain', 'blocked']);
+  'background_setup_inspection_complete', 'background_probe_complete', 'failed', 'uncertain', 'blocked']);
 const FAILURE_CLASSES = new Set(['network', 'timeout', 'rate_limited', 'auth_required', 'challenge', 'schema_changed', 'identity_mismatch', 'aborted']);
 const STARTUP_FENCE_REASONS = {
   starting: new Set(['none']),
@@ -101,6 +107,11 @@ function adapterReady(reviewedAdapters, selected) {
   const entry = adapterEntry(reviewedAdapters, selected.qualification.adapter_id,
     selected.qualification.contract_fingerprint);
   if (!entry) return null;
+  if (selected.scope === 'background-selected-conversation') {
+    return selected.qualification.adapter_id === BACKGROUND_SELECTED_ADAPTER_ID
+      && selected.qualification.contract_fingerprint === BACKGROUND_SELECTED_CONTRACT_FINGERPRINT
+      && entry.scope === 'background-selected-conversation' ? entry : null;
+  }
   if (selected.scope === 'background-setup-inspection') {
     return selected.qualification.adapter_id === BACKGROUND_SETUP_ADAPTER_ID
       && selected.qualification.contract_fingerprint === BACKGROUND_SETUP_CONTRACT_FINGERPRINT
@@ -111,9 +122,10 @@ function adapterReady(reviewedAdapters, selected) {
       && selected.qualification.contract_fingerprint === SETUP_CONTRACT_FINGERPRINT
       && entry.scope === 'setup-inspection' ? entry : null;
   }
-  // The setup adapter is never a body-capture adapter, even if a malicious
-  // registry tries to relabel it.
-  if ([SETUP_ADAPTER_ID, BACKGROUND_SETUP_ADAPTER_ID].includes(selected.qualification.adapter_id)) return null;
+  // Dedicated qualification adapters cannot become generic conversation
+  // adapters, even if a malicious registry tries to relabel them.
+  if ([SETUP_ADAPTER_ID, BACKGROUND_SETUP_ADAPTER_ID, BACKGROUND_SELECTED_ADAPTER_ID]
+    .includes(selected.qualification.adapter_id)) return null;
   return entry;
 }
 
@@ -169,8 +181,9 @@ function validateConfig(value) {
   exact(value.binding, ['principal_id', 'context_id']);
   string(value.binding.principal_id, ID);
   const scope = value.scope === undefined ? 'conversation' : value.scope;
-  if (!['conversation', 'setup-inspection', 'background-setup-inspection'].includes(scope)) invalid();
-  if (scope !== 'conversation') {
+  if (!['conversation', 'setup-inspection', 'background-setup-inspection', 'background-selected-conversation']
+    .includes(scope)) invalid();
+  if (['setup-inspection', 'background-setup-inspection'].includes(scope)) {
     if (value.binding.context_id !== null) invalid();
   } else string(value.binding.context_id, ID);
   exact(value.qualification, ['adapter_id', 'contract_fingerprint']);
@@ -187,19 +200,26 @@ function validateStatus(value) {
     configured: value.configured === true, qualification_ready: value.qualification_ready === true };
   if (value.scope === 'setup-inspection') status.scope = value.scope;
   if (value.scope === 'background-setup-inspection') status.scope = value.scope;
+  if (value.scope === 'background-selected-conversation') status.scope = value.scope;
   if (value.can_inspect === true) status.can_inspect = true;
   if (value.can_inspect_background === true) status.can_inspect_background = true;
+  if (value.can_fetch_selected === true) status.can_fetch_selected = true;
   return status;
 }
 
 function displayStatus({ state, reason_code, scope = 'conversation', configured = false,
   qualification_ready = false, diagnostic_code }) {
   const setup = ['setup-inspection', 'background-setup-inspection'].includes(scope);
-  const canStart = state === 'ready' && !setup;
+  const selected = scope === 'background-selected-conversation';
+  const canStart = state === 'ready' && !setup && !selected;
   const status = { state, reason_code, can_start: canStart, configured, qualification_ready };
   if (setup) {
     status.scope = scope;
     status[scope === 'background-setup-inspection' ? 'can_inspect_background' : 'can_inspect'] = state === 'ready';
+  }
+  if (selected) {
+    status.scope = scope;
+    status.can_fetch_selected = state === 'ready';
   }
   if (DIAGNOSTICS.has(diagnostic_code)) status.diagnostic_code = diagnostic_code;
   return output(status);
@@ -228,6 +248,8 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
   startupDiagnosticRevision = 1, inspectStartupV2 = inspectPageStartupV2,
   backgroundOnly = false, makeBackgroundCollector = createBackgroundSetupCollector,
   backgroundProbe = runBackgroundSetupInspection,
+  selectedOnly = false, makeSelectedCollector = createBackgroundSelectedCollector,
+  runSelectedProbe = runBackgroundSelectedProbe,
   uuid = () => crypto.randomUUID() } = {}) {
   if (!storage || typeof storage.get !== 'function' || typeof storage.set !== 'function'
     || typeof openPage !== 'function' || typeof makeNativeClient !== 'function'
@@ -235,7 +257,9 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
     || typeof inspectStartup !== 'function' || typeof inspectStartupV2 !== 'function'
     || typeof startupDiagnosticEnabled !== 'boolean' || ![1, 2].includes(startupDiagnosticRevision)
     || typeof backgroundOnly !== 'boolean' || typeof makeBackgroundCollector !== 'function'
-    || typeof backgroundProbe !== 'function') invalid();
+    || typeof backgroundProbe !== 'function' || typeof selectedOnly !== 'boolean'
+    || (backgroundOnly && selectedOnly) || typeof makeSelectedCollector !== 'function'
+    || typeof runSelectedProbe !== 'function') invalid();
   let cachedStatus = displayStatus({ state: 'unconfigured', reason_code: 'configuration_required' });
   const diagnosticResult = (state, reason) => startupResult(state, reason, startupDiagnosticRevision);
   // Revision selection is private package configuration, never a popup/storage
@@ -244,25 +268,36 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
     ? STARTUP_DIAGNOSTIC_V2_FENCE_KEY : STARTUP_DIAGNOSTIC_FENCE_KEY;
   const diagnosticDocumentKey = startupDiagnosticRevision === 2
     ? STARTUP_DIAGNOSTIC_V2_DOCUMENT_KEY : STARTUP_DIAGNOSTIC_DOCUMENT_KEY;
-  const fenceKey = backgroundOnly ? BACKGROUND_SETUP_FENCE_KEY : FENCE_KEY;
-  const statusKey = backgroundOnly ? BACKGROUND_SETUP_STATUS_KEY : STATUS_KEY;
-  const pendingFailureKey = backgroundOnly ? BACKGROUND_SETUP_PENDING_FAILURE_KEY : PENDING_FAILURE_KEY;
-  const defaultScope = backgroundOnly ? 'background-setup-inspection' : 'conversation';
+  const workerOnly = backgroundOnly || selectedOnly;
+  const fenceKey = selectedOnly ? BACKGROUND_SELECTED_FENCE_KEY
+    : backgroundOnly ? BACKGROUND_SETUP_FENCE_KEY : FENCE_KEY;
+  const statusKey = selectedOnly ? BACKGROUND_SELECTED_STATUS_KEY
+    : backgroundOnly ? BACKGROUND_SETUP_STATUS_KEY : STATUS_KEY;
+  const pendingFailureKey = selectedOnly ? BACKGROUND_SELECTED_PENDING_FAILURE_KEY
+    : backgroundOnly ? BACKGROUND_SETUP_PENDING_FAILURE_KEY : PENDING_FAILURE_KEY;
+  const defaultScope = selectedOnly ? 'background-selected-conversation'
+    : backgroundOnly ? 'background-setup-inspection' : 'conversation';
 
   async function readValues() {
-    const values = await storage.get([...(backgroundOnly ? [] : [CONFIG_KEY, OWNED_DOCUMENT_KEY]), statusKey, fenceKey]);
+    const values = await storage.get([...(workerOnly ? [] : [CONFIG_KEY, OWNED_DOCUMENT_KEY]),
+      statusKey, fenceKey, ...(selectedOnly ? [pendingFailureKey] : [])]);
     if (!plain(values)) invalid();
     const selected = config === undefined
-      ? (!backgroundOnly && Object.hasOwn(values, CONFIG_KEY) ? validateConfig(values[CONFIG_KEY]) : null)
+      ? (!workerOnly && Object.hasOwn(values, CONFIG_KEY) ? validateConfig(values[CONFIG_KEY]) : null)
       : validateConfig(config);
     const status = validateStatus(values[statusKey]);
     const fence = validateFence(values[fenceKey]);
+    if (selectedOnly && ((!fence && Object.hasOwn(values, pendingFailureKey))
+      || (Object.hasOwn(values, statusKey) && !plain(values[statusKey])))) {
+      throw new ProbeClientError('dispatch_uncertain');
+    }
     return { selected, status, fence, ownedRecord: values[OWNED_DOCUMENT_KEY] };
   }
 
   function configuredAdapter(selected) {
-    if (backgroundOnly !== (selected.scope === 'background-setup-inspection')) return null;
-    if (backgroundOnly && (config === undefined || chromeApi?.extension?.inIncognitoContext !== false)) return null;
+    if (backgroundOnly !== (selected.scope === 'background-setup-inspection')
+      || selectedOnly !== (selected.scope === 'background-selected-conversation')) return null;
+    if (workerOnly && (config === undefined || chromeApi?.extension?.inIncognitoContext !== false)) return null;
     // Setup inspection is enabled only by the private package's explicit
     // setupConfig replacement. A storage-injected setup object must not turn
     // the public package into an inspection-capable build.
@@ -291,7 +326,7 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
       // A stored in-progress/terminal status without its durable fence is not
       // evidence of a clean state after service-worker restart.
       if (stored && ['starting', 'running', 'probe_complete', 'setup_inspection_complete',
-        'background_setup_inspection_complete', 'failed', 'uncertain'].includes(stored.state)) {
+        'background_setup_inspection_complete', 'background_probe_complete', 'failed', 'uncertain'].includes(stored.state)) {
         return displayStatus({ state: 'uncertain', reason_code: 'dispatch_uncertain',
           scope: selected.scope, configured: true, qualification_ready: entry !== null });
       }
@@ -327,14 +362,15 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
         return await saveStatus({ state: 'unconfigured', reason_code: 'configuration_required' });
       }
       if (selected.scope !== mode
-        || backgroundOnly !== (selected.scope === 'background-setup-inspection')) {
+        || backgroundOnly !== (selected.scope === 'background-setup-inspection')
+        || selectedOnly !== (selected.scope === 'background-selected-conversation')) {
         return output(displayStatus({ state: 'blocked', reason_code: 'invalid_message', scope: selected.scope,
           configured: true, qualification_ready: false }));
       }
       // A persisted in-progress or terminal status without its durable fence
       // is not safe to reinterpret as a fresh run after worker restart.
       if (!fence && stored && ['starting', 'running', 'probe_complete', 'setup_inspection_complete',
-        'background_setup_inspection_complete', 'failed', 'uncertain'].includes(stored.state)) {
+        'background_setup_inspection_complete', 'background_probe_complete', 'failed', 'uncertain'].includes(stored.state)) {
         return output(displayStatus({ state: 'uncertain', reason_code: 'dispatch_uncertain',
           scope: selected.scope, configured: true, qualification_ready: false }));
       }
@@ -358,20 +394,23 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
       const initialize = { operation: 'initialize', binding: selected.binding,
         conversation_id: selected.conversation_id,
         qualification: { adapter_id: selected.qualification.adapter_id } };
-      page = backgroundOnly
-        ? await makeBackgroundCollector({ binding: selected.binding, uuid })
+      page = selectedOnly
+        ? await makeSelectedCollector({ binding: selected.binding, conversationId: selected.conversation_id, uuid })
+        : backgroundOnly ? await makeBackgroundCollector({ binding: selected.binding, uuid })
         : await openPage({ chromeApi, browserInstanceId: selected.browser_instance_id, initialize, uuid });
       native = makeNativeClient(chromeApi);
       await saveStatus({ state: 'running', reason_code: 'none' },
         { scope: selected.scope, configured: true, qualificationReady: true });
-      const probeFn = backgroundOnly ? backgroundProbe : mode === 'setup-inspection' ? setupProbe : probe;
-      const result = await probeFn({ request: native.request, ...(backgroundOnly ? { collector: page } : { page }),
+      const probeFn = selectedOnly ? runSelectedProbe
+        : backgroundOnly ? backgroundProbe : mode === 'setup-inspection' ? setupProbe : probe;
+      const result = await probeFn({ request: native.request, ...(workerOnly ? { collector: page } : { page }),
         browserInstanceId: selected.browser_instance_id, binding: selected.binding,
         conversationId: selected.conversation_id,
         persistFailure: async (failure) => {
           await storage.set({ [pendingFailureKey]: validatePendingFailure(failure) });
         }, uuid });
-      const completeState = backgroundOnly ? 'background_setup_inspection_complete'
+      const completeState = selectedOnly ? 'background_probe_complete'
+        : backgroundOnly ? 'background_setup_inspection_complete'
         : mode === 'setup-inspection' ? 'setup_inspection_complete' : 'probe_complete';
       if (!plain(result) || result.state !== completeState) throw new ProbeClientError('dispatch_uncertain');
       await saveStatus({ state: completeState, reason_code: completeState },
@@ -397,11 +436,12 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
   async function start(options = {}) { return run('conversation', options); }
   async function inspectSession(options = {}) { return run('setup-inspection', options); }
   async function inspectBackgroundSession(options = {}) { return run('background-setup-inspection', options); }
+  async function fetchSelectedConversation(options = {}) { return run('background-selected-conversation', options); }
 
   async function startupReadiness() {
     // Only a private constructor flag can enable this separate one-shot action.
     // It cannot recover, modify, or replace the original attempt's fence.
-    if (!startupDiagnosticEnabled || backgroundOnly) return { result: diagnosticResult('disabled', 'diagnostic_disabled') };
+    if (!startupDiagnosticEnabled || workerOnly) return { result: diagnosticResult('disabled', 'diagnostic_disabled') };
     try {
       const values = await storage.get([...new Set([
         diagnosticFenceKey, diagnosticDocumentKey, STARTUP_DIAGNOSTIC_FENCE_KEY,
@@ -517,6 +557,10 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
     }
     if (message.type === 'status') return status();
     if (message.type === 'background_status' && backgroundOnly) return status();
+    if (message.type === 'selected_status' && selectedOnly) return status();
+    if (message.type === 'fetch_selected_conversation' && selectedOnly && Object.hasOwn(message, 'user_gesture')) {
+      return fetchSelectedConversation({ userGesture: message.user_gesture });
+    }
     if (message.type === 'inspect_background_session' && backgroundOnly && Object.hasOwn(message, 'user_gesture')) {
       return inspectBackgroundSession({ userGesture: message.user_gesture });
     }
@@ -536,6 +580,6 @@ export function createProbeController({ chromeApi, storage = chromeApi?.storage?
     return output(displayStatus({ state: 'blocked', reason_code: 'invalid_message' }));
   }
 
-  return { status, start, inspectSession, inspectBackgroundSession, checkConnection,
+  return { status, start, inspectSession, inspectBackgroundSession, fetchSelectedConversation, checkConnection,
     startupStatus, diagnoseStartup, handleMessage };
 }

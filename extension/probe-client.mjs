@@ -161,19 +161,25 @@ export async function runBackgroundSetupInspection(options = {}) {
   return runQualification(options, 'background-setup');
 }
 
+export async function runBackgroundSelectedProbe(options = {}) {
+  return runQualification(options, 'background-selected');
+}
+
 async function runQualification({ request, page, collector, browserInstanceId, binding,
   conversationId,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   persistFailure, uuid = () => crypto.randomUUID() }, mode) {
   const backgroundSetup = mode === 'background-setup';
+  const backgroundSelected = mode === 'background-selected';
+  const background = backgroundSetup || backgroundSelected;
   const sessionOnly = mode === 'session' || mode === 'setup' || backgroundSetup;
   const setupOnly = mode === 'setup' || backgroundSetup;
-  const source = backgroundSetup ? collector : page;
+  const source = background ? collector : page;
   if (typeof request !== 'function' || typeof source?.call !== 'function'
     || typeof persistFailure !== 'function' || typeof wait !== 'function') reject();
   text(browserInstanceId, UUID);
   if (!sessionOnly) text(conversationId, ID);
-  if (backgroundSetup) text(source.collectorInstanceId, UUID);
+  if (background) text(source.collectorInstanceId, UUID);
   else text(source.documentId, ID);
   keys(binding, ['principal_id', 'context_id']);
   text(binding.principal_id, ID);
@@ -194,7 +200,9 @@ async function runQualification({ request, page, collector, browserInstanceId, b
   const receipts = [];
   try {
     const hello = await send('hello', { extension_version: '0.0.0', browser_instance_id: browserInstanceId,
-      capabilities: backgroundSetup ? ['session_check', 'chunking', 'background_session_check']
+      capabilities: backgroundSelected
+        ? ['session_check', 'body', 'chunking', 'background_session_check', 'background_selected_body']
+        : backgroundSetup ? ['session_check', 'chunking', 'background_session_check']
         : sessionOnly ? ['session_check', 'chunking'] : ['session_check', 'body', 'chunking'] });
     keys(hello, ['worker_instance_id', 'protocol_version', 'config_version']);
     text(hello.worker_instance_id, UUID);
@@ -224,7 +232,7 @@ async function runQualification({ request, page, collector, browserInstanceId, b
       }
       fence.permit_id = permit.permit_id;
       const started = await send('dispatch_started', { browser_instance_id: browserInstanceId,
-        ...(backgroundSetup ? { collector_instance_id: source.collectorInstanceId }
+        ...(background ? { collector_instance_id: source.collectorInstanceId }
           : { document_id: source.documentId }) }, fence);
       keys(started, ['accepted']);
       if (started.accepted !== true) reject();
@@ -300,7 +308,8 @@ async function runQualification({ request, page, collector, browserInstanceId, b
         if (released.ok !== true) reject();
       }
     }
-    return { state: backgroundSetup ? 'background_setup_inspection_complete'
+    return { state: backgroundSelected ? 'background_probe_complete'
+      : backgroundSetup ? 'background_setup_inspection_complete'
       : setupOnly ? 'setup_inspection_complete' : sessionOnly ? 'session_check_complete' : 'probe_complete', receipts };
   } catch (error) {
     // Chrome/fetch/transport exceptions may contain private page or path text.

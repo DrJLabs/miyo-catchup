@@ -2,12 +2,68 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { createNativeClient, runProbe, runSessionCheck, runSetupInspection,
-  runBackgroundSetupInspection } from '../extension/probe-client.mjs';
+  runBackgroundSetupInspection, runBackgroundSelectedProbe } from '../extension/probe-client.mjs';
 import { assertReply, assertRequest, MAX_RAW_CHUNK_BYTES } from '../src/contracts.mjs';
 
 const binding = { principal_id: 'synthetic-user', context_id: 'synthetic-personal' };
 const browserInstanceId = randomUUID();
 const documentId = 'synthetic-document';
+
+function selectedFixture() {
+  const fixture = syntheticProbe();
+  fixture.options.collector = { ...fixture.options.page, collectorInstanceId: randomUUID() };
+  delete fixture.options.collector.documentId;
+  delete fixture.options.page;
+  return fixture;
+}
+
+test('selected client uses background identity and two independently acknowledged permits', async () => {
+  const f = selectedFixture();
+  const result = await runBackgroundSelectedProbe(f.options);
+  assert.equal(result.state, 'background_probe_complete');
+  assert.equal(result.receipts.length, 2);
+  assert.deepEqual(f.messages[0].payload.capabilities,
+    ['session_check', 'body', 'chunking', 'background_session_check', 'background_selected_body']);
+  for (const m of f.messages.filter((m) => m.operation === 'dispatch_started')) {
+    assert.equal(m.payload.collector_instance_id, f.options.collector.collectorInstanceId);
+    assert.equal(Object.hasOwn(m.payload, 'document_id'), false);
+  }
+  assert.deepEqual(f.waits, [10000]);
+});
+
+test('selected lost session/body dispatch or commit ACK aborts without another dispatch or retry', async () => {
+  for (const [operation, occurrence, expectedDispatches] of [
+    ['dispatch_started', 1, 0], ['commit_result', 1, 1],
+    ['dispatch_started', 2, 1], ['commit_result', 2, 2],
+  ]) {
+    const f = selectedFixture();
+    let count = 0;
+    const request = f.options.request;
+    f.options.request = async (m) => {
+      const reply = await request(m);
+      if (m.operation === operation && ++count === occurrence) throw new Error('private-transport-detail');
+      return reply;
+    };
+    await assert.rejects(runBackgroundSelectedProbe(f.options), { code: 'dispatch_uncertain' });
+    assert.equal(f.pageCalls.filter((op) => op === 'dispatch').length, expectedDispatches);
+    assert.equal(f.pageCalls.at(-1), 'abort');
+    assert.equal(f.messages.filter((m) => m.operation === operation).length, occurrence);
+  }
+});
+
+test('selected client rejects a changed session context before any native data or body claim', async () => {
+  const f = selectedFixture();
+  const call = f.options.collector.call;
+  f.options.collector.call = async (command) => {
+    const result = await call(command);
+    if (command.operation !== 'pull') return result;
+    const bytes = Buffer.from(JSON.stringify({ ...binding, context_id: 'other-personal' }));
+    return { ...result, decoded_bytes: bytes.length, data: bytes.toString('base64') };
+  };
+  await assert.rejects(runBackgroundSelectedProbe(f.options), { code: 'invalid_probe_message' });
+  assert.equal(f.messages.some((m) => m.operation === 'result_chunk'), false);
+  assert.equal(f.pageCalls.filter((op) => op === 'dispatch').length, 1);
+});
 
 function syntheticProbe({ loseCommit = false, failure, poison = false, setup = false } = {}) {
   const probeBinding = setup ? { principal_id: 'setup-principal', context_id: null } : binding;

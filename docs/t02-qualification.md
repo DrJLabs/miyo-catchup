@@ -1,15 +1,49 @@
 # T02 qualification boundary
 
-T02 is **in progress; body capture is not live-qualified**. The operator's
-background-session success screenshot is backed by a verified identity-only
-artifact and durable native commit receipt. One session permit and no body
-permit were recorded; the receiver was stopped afterward. This proves the
-bounded setup path, not visible-workspace attestation or conversation capture.
-The qualification package and synthetic tests below do not establish that
-remaining body proof. The single progress
+T02's **bounded selected-conversation proof passed live**. After the operator's
+reload and single click, private receiver evidence records one session permit
+and one body permit, two committed artifacts and `background_probe_complete`.
+Independent readback verified the exact pinned identity/selection, response
+contract, original byte counts, SHA-256 and native commit receipts. The receiver
+then stopped cleanly and post-stop integrity checks passed. The screenshot
+captured an intermediate popup state, not the terminal result.
+
+This is the tested token-bound personal-account route, not visible-workspace
+attestation, full catalog capture, Miyo import or production activation. Prior
+session-only and failed-page evidence remains preserved. The single progress
 checkpoint remains in [the implementation plan](implementation-plan.md#definition-of-done-and-current-checkpoint).
 
 ## Implemented boundaries
+
+### Approved selected-body proof
+
+`extension/background-selected-collector.mjs` and the shared
+`extension/selected-conversation-contract.mjs` implement one fresh session check
+and one fixed single-conversation GET. `background-selected-conversation` has
+its own private configuration, root, capability and extension fence. Expected
+principal, personal backend account and token account scope must match. The
+body request omits cookies and uses only the fresh token; no visible-workspace
+attestation is claimed. Token lifetime is at most 60 seconds or its earlier
+expiry, with no cache, refresh, fallback or retry. Bounded strict UTF-8 bytes,
+selected ID and graph contract are checked before native transfer and again
+by the receiver. The body digest covers original bytes, not reserialization.
+
+`src/selected-conversation-entry.mjs` is the explicit foreground entry, using
+the existing ten-minute OS-locked owner mechanism. Its configuration requires
+the exact scope, extension-background execution context and nonnull binding;
+the setup entry cannot silently enable it. Receiver `selected_body_ready`
+records the committed binding check without changing `attested` from false.
+The final state is `background_probe_complete`; it is never catalog-complete,
+imported, indexed or verified. All prior setup/page roots remain unchanged.
+
+The public package leaves `backgroundSelectedConfig` undefined. The private
+popup action is **Fetch selected conversation once**. Reload is manual; start
+the separately configured receiver just before the click. Do not click prior
+inspection/diagnostic buttons, clear storage, reinstall or retry a failure.
+The canonical checkpoint records packaging and live evidence separately. This
+one-shot action has now completed; do not retry it or clear its fence.
+
+### Existing page, setup and transport paths
 
 - `extension/page-collector.mjs`: fixed serializable MAIN-world function;
   separately permitted session/body operations, page-local credentials, bounded
@@ -115,8 +149,9 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
 
 Session transfer contains only `{principal_id, context_id}` after page-side
 validation. Conversation bytes are transferred with their original UTF-8 digest,
-not a reserialized JSON digest. Only conversation scope can complete as
-`probe_complete`; setup/session completion is not body capture. None means
+not a reserialized JSON digest. Page conversation scope can complete as
+`probe_complete`; the selected background scope completes separately as
+`background_probe_complete`. Setup/session completion is not body capture. None means
 catalog-complete, imported, indexed, or verified.
 
 ## Local connection checkpoint

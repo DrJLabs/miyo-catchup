@@ -72,7 +72,7 @@ async function awaitAbortable(value, signal, deadline) {
   }
 }
 
-async function readBoundedJson(response, signal, deadline) {
+async function readBoundedJson(response, signal, deadline, maxBytes = MAX_SESSION_BYTES, includeBytes = false) {
   if (!response || !Number.isInteger(response.status)) throw new Error('schema_changed');
   if (response.status === 401) throw Object.assign(new Error('auth_required'), { httpStatus: 401 });
   if (response.status === 403) throw Object.assign(new Error('challenge'), { httpStatus: 403 });
@@ -84,12 +84,15 @@ async function readBoundedJson(response, signal, deadline) {
   if (response.status !== 200 || !responseContentTypeIsJson(response)) throw new Error('schema_changed');
   if (!response.body || typeof response.body.getReader !== 'function') throw new Error('schema_changed');
   const reader = response.body.getReader();
+  // Fixed-size blocks bound bookkeeping even if the stream yields tiny chunks.
   let chunks = [];
+  let block = null;
+  let used = 0;
   let bytes = null;
   let text = null;
   let total = 0;
   let cancelRequested = false;
-  const dropRaw = () => { chunks = []; bytes = null; text = null; };
+  const dropRaw = () => { chunks = []; block = null; bytes = null; text = null; };
   const requestCancel = () => {
     if (cancelRequested) return;
     cancelRequested = true;
@@ -105,10 +108,19 @@ async function readBoundedJson(response, signal, deadline) {
       if (!item || typeof item !== 'object') throw new Error('schema_changed');
       if (item.done) break;
       if (!ArrayBuffer.isView(item.value) || item.value.byteLength < 0) throw new Error('schema_changed');
-      if (total + item.value.byteLength > MAX_SESSION_BYTES) throw new Error('schema_changed');
-      const bytes = new Uint8Array(item.value.buffer, item.value.byteOffset, item.value.byteLength);
-      chunks.push(new Uint8Array(bytes));
-      total += bytes.byteLength;
+      if (total + item.value.byteLength > maxBytes) throw new Error('schema_changed');
+      const part = new Uint8Array(item.value.buffer, item.value.byteOffset, item.value.byteLength);
+      let offset = 0;
+      while (offset < part.byteLength) {
+        if (!block || used === block.length) {
+          block = new Uint8Array(Math.min(184320, maxBytes - total));
+          chunks.push(block);
+          used = 0;
+        }
+        const count = Math.min(block.length - used, part.byteLength - offset);
+        block.set(part.subarray(offset, offset + count), used);
+        used += count; offset += count; total += count;
+      }
     }
   } catch (error) {
     requestCancel();
@@ -119,10 +131,14 @@ async function readBoundedJson(response, signal, deadline) {
   if (signal.aborted || deadline.expired) throw new Error(deadline.expired ? 'timeout' : 'aborted');
   bytes = new Uint8Array(total);
   let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  for (const chunk of chunks) {
+    const length = Math.min(chunk.length, total - offset);
+    bytes.set(chunk.subarray(0, length), offset); offset += length;
+  }
   try {
     text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    return includeBytes ? { parsed, bytes } : parsed;
   } catch { throw new Error('schema_changed'); }
   finally { dropRaw(); }
 }
@@ -189,6 +205,11 @@ function classify(error) {
 }
 
 function invalidConfiguration() { throw new ProbeClientError('invalid_probe_configuration'); }
+
+// Shared only with the separately authorized background selected-body collector.
+// No helper fetches, persists or exports authentication material on its own.
+export { SESSION_URL, exact, boundedId, uuid, failure, awaitAbortable,
+  readBoundedJson, decodeJwtPayload, parseSession, digest, base64, classify };
 
 export function createBackgroundSetupCollector({ binding, uuid: makeUuid = () => globalThis.crypto.randomUUID(),
   fetchImpl = globalThis.fetch, timeoutMs = 30000, wallNow = Date.now } = {}) {
@@ -288,6 +309,8 @@ export function createBackgroundSetupCollector({ binding, uuid: makeUuid = () =>
       } catch (error) {
         return classify(error);
       } finally {
+        try { Promise.resolve(response?.body?.cancel?.()).catch(() => {}); } catch { /* locked reader */ }
+        controller.abort();
         response = null;
         parsed = null;
       }

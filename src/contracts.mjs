@@ -131,7 +131,7 @@ function validatePayload(errors, value, operation) {
       if (!object(errors, p, payloadPath, new Set(['extension_version', 'browser_instance_id', 'capabilities']), ['extension_version', 'browser_instance_id', 'capabilities'])) return;
       version(errors, p.extension_version, `${payloadPath}.extension_version`); uuid(errors, p.browser_instance_id, `${payloadPath}.browser_instance_id`);
       if (!Array.isArray(p.capabilities) || p.capabilities.length > 16 || new Set(p.capabilities).size !== p.capabilities.length) fail(errors, `${payloadPath}.capabilities`, 'must be a unique bounded array');
-      else p.capabilities.forEach((x, i) => enumValue(errors, x, `${payloadPath}.capabilities[${i}]`, ['session_check', 'catalog', 'body', 'chunking', 'background_session_check']));
+      else p.capabilities.forEach((x, i) => enumValue(errors, x, `${payloadPath}.capabilities[${i}]`, ['session_check', 'catalog', 'body', 'chunking', 'background_session_check', 'background_selected_body']));
       break;
     }
     case 'request_run':

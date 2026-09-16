@@ -17,6 +17,7 @@ import {
   MAX_RESPONSE_BYTES,
   validateRequest,
 } from './contracts.mjs';
+import { validateSelectedConversation } from '../adapters/chatgpt-selected-conversation.mjs';
 import { openDurableDatabase, transaction } from './sqlite.mjs';
 import {
   assertContainedPath,
@@ -26,7 +27,8 @@ import {
 
 /**
  * The receiver is deliberately a T02 qualification harness, not a collector.
- * It accepts one session result and, for conversation scope, one pinned body
+ * It accepts one session result and, for conversation or the separately scoped
+ * background-selected-conversation scope, one pinned body
  * result. The caller must
  * hold a process-lifetime OS ownership lock before constructing it. A
  * process-local guard prevents accidental duplicate writers in one process;
@@ -241,12 +243,14 @@ function stateSummary(state, conversationId) {
   return {
     stage: state.stage,
     probe_complete: state.stage === 'probe_complete',
+    background_probe_complete: state.stage === 'background_probe_complete',
     setup_complete: state.stage === 'setup_complete',
     background_setup_complete: state.stage === 'background_setup_complete',
     catalog_complete: false,
     verified: false,
     conversation_id: conversationId,
     attested: state.attested,
+    selected_body_ready: state.selected_body_ready === true,
     session_committed: state.session?.status === 'committed',
     body_committed: state.body?.status === 'committed',
     dispatch_state: state.blocker ?? null,
@@ -271,9 +275,10 @@ function checkFence(state, request, permitRequired = true) {
  * Construct one bounded, private T02 receiver.
  *
  * `root` is mandatory; `trustedBoundary` is an explicit test-only exception to
- * full ancestor validation. `validateBody` is mandatory for conversation scope;
- * session-only and setup-inspection scopes never admit body work and therefore
- * do not require one.
+ * full ancestor validation. `validateBody` is mandatory for conversation scope.
+ * The selected background scope uses the repository's fixed selected-
+ * conversation validator directly; session-only and setup-inspection scopes
+ * never admit body work.
  * `ownership` is a required caller-held
  * lock assertion, not an acquisition mechanism; in production the
  * caller must hold an OS flock for the process lifetime. This module never
@@ -282,12 +287,13 @@ function checkFence(state, request, permitRequired = true) {
 export function createProbeReceiver(options = {}) {
   const requestedScope = options.scope;
   const scope = requestedScope === undefined ? 'conversation' : requestedScope;
-  if (!['conversation', 'session-only', 'setup-inspection', 'background-setup-inspection'].includes(scope)) {
-    throw new TypeError('scope must be conversation, session-only, setup-inspection or background-setup-inspection');
+  const selectedScope = scope === 'background-selected-conversation';
+  if (!['conversation', 'session-only', 'setup-inspection', 'background-setup-inspection', 'background-selected-conversation'].includes(scope)) {
+    throw new TypeError('scope must be conversation, session-only, setup-inspection, background-setup-inspection or background-selected-conversation');
   }
   const setupScope = scope === 'setup-inspection' || scope === 'background-setup-inspection';
-  const backgroundScope = scope === 'background-setup-inspection';
-  const terminalStages = ['probe_complete', 'setup_complete', 'background_setup_complete'];
+  const backgroundScope = scope === 'background-setup-inspection' || selectedScope;
+  const terminalStages = ['probe_complete', 'background_probe_complete', 'setup_complete', 'background_setup_complete'];
   const setupTerminal = backgroundScope ? 'background_setup_complete' : 'setup_complete';
   const root = normalizeAbsolutePath(options.root, 'probe root');
   const trustedBoundary = options.trustedBoundary === undefined
@@ -297,10 +303,12 @@ export function createProbeReceiver(options = {}) {
   if (scope === 'conversation' && typeof options.validateBody !== 'function') {
     throw new TypeError('validateBody must be injected');
   }
-  // Non-conversation roots never admit body work. Keep a defensive false
-  // validator in case a malformed or manually altered permit reaches commit;
-  // a caller-supplied callback must not affect these scopes.
-  const validateBody = scope === 'conversation' ? options.validateBody : () => false;
+  // The selected background scope is tied to the fixed adapter validator;
+  // callers cannot replace it with a permissive callback. Other non-
+  // conversation roots never admit body work. Keep a defensive false
+  // validator in case a malformed or manually altered permit reaches commit.
+  const validateBody = scope === 'conversation' ? options.validateBody
+    : selectedScope ? validateSelectedConversation : () => false;
   if (typeof options.ownership !== 'function' || options.ownership() !== true) {
     throw new Error('probe receiver ownership was not proven');
   }
@@ -335,7 +343,7 @@ export function createProbeReceiver(options = {}) {
     ? digest(canonical(binding))
     : digest(canonical({ binding, scope }));
   const initial = {
-    scope, stage: 'new', request_count: 0, attested: false, blocker: null,
+    scope, stage: 'new', request_count: 0, attested: false, selected_body_ready: false, blocker: null,
     worker_instance_id: randomUUID(), run_id: null, attempt_id: null,
     lease_generation: 0, browser_instance_id: null, document_id: null,
     collector_instance_id: null,
@@ -352,7 +360,8 @@ export function createProbeReceiver(options = {}) {
       db.close();
       throw new Error('probe scope, binding or conversation changed for existing root');
     }
-    if (['setup-inspection', 'background-setup-inspection'].includes(scope) && state.attested !== false) {
+    if (['setup-inspection', 'background-setup-inspection', 'background-selected-conversation'].includes(scope)
+      && state.attested !== false) {
       db.close();
       throw new Error('setup-inspection state must never be attested');
     }
@@ -514,7 +523,11 @@ export function createProbeReceiver(options = {}) {
 
   function hello(request) {
     const backgroundCapability = request.payload.capabilities.includes('background_session_check');
-    if (backgroundScope !== backgroundCapability) {
+    const selectedBodyCapability = request.payload.capabilities.includes('background_selected_body');
+    const capabilityMatches = selectedScope
+      ? backgroundCapability && selectedBodyCapability
+      : backgroundScope === backgroundCapability && !selectedBodyCapability;
+    if (!capabilityMatches) {
       return boundedResponse(request, reply(request.request_id, false, fail('blocked')));
     }
     const response = reply(request.request_id, true, {
@@ -533,6 +546,7 @@ export function createProbeReceiver(options = {}) {
 
   function claim(request) {
     const p = request.payload;
+    const bodyReady = state.attested || state.selected_body_ready === true;
     if (setupScope && state.stage === setupTerminal) {
       return boundedResponse(request, reply(request.request_id, false, fail('blocked')));
     }
@@ -556,12 +570,12 @@ export function createProbeReceiver(options = {}) {
       state.run_id = randomUUID(); state.attempt_id = randomUUID(); state.lease_generation = 1;
       state.stage = 'session_claimed';
       persistState();
-    } else if (!state.attested && (p.principal_id !== null || p.context_id !== null)) {
+    } else if (!bodyReady && (p.principal_id !== null || p.context_id !== null)) {
       return boundedResponse(request, reply(request.request_id, false, fail('identity_mismatch')));
-    } else if (state.attested && (p.principal_id !== binding.principal_id || p.context_id !== binding.context_id)) {
+    } else if (bodyReady && (p.principal_id !== binding.principal_id || p.context_id !== binding.context_id)) {
       return boundedResponse(request, reply(request.request_id, false, fail('identity_mismatch')));
     }
-    const workUnit = state.attested ? 'body' : 'session-check';
+    const workUnit = bodyReady ? 'body' : 'session-check';
     const current = now();
     if (state.lease_valid_until !== null && (current.wall > state.lease_valid_until
       || current.monotonic > state.lease_monotonic_until) && state.stage !== 'session_committed') {
@@ -575,19 +589,21 @@ export function createProbeReceiver(options = {}) {
   }
 
   function fence(request, workUnit) {
+    const bodyReady = state.attested || state.selected_body_ready === true;
     if (!checkFence(state, request, false) || state.blocker
       || terminalStages.includes(state.stage)) return false;
-    if (state.attested && workUnit === 'session-check') return false;
-    if (!state.attested && workUnit === 'body') return false;
+    if (bodyReady && workUnit === 'session-check') return false;
+    if (!bodyReady && workUnit === 'body') return false;
     return true;
   }
 
   function permit(request) {
+    const bodyReady = state.attested || state.selected_body_ready === true;
     if ((scope === 'session-only' && state.attested)
       || (setupScope && state.stage === setupTerminal)) {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
     }
-    const expectedUnit = state.attested ? 'body' : 'session-check';
+    const expectedUnit = bodyReady ? 'body' : 'session-check';
     if (!fence(request, request.payload.work_unit_id) || request.payload.work_unit_id !== expectedUnit) {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
     }
@@ -792,12 +808,20 @@ export function createProbeReceiver(options = {}) {
       if (setupScope) {
         state.attested = false;
         state.stage = setupTerminal;
+      } else if (selectedScope) {
+        // A background session proves only the configured account/context for
+        // this separate root. It never attests the visible browser workspace.
+        state.attested = false;
+        state.selected_body_ready = true;
+        state.stage = 'session_committed';
       } else {
         state.attested = true;
         state.stage = 'session_committed';
       }
     } else {
-      state.body = evidence; state.stage = 'probe_complete';
+      state.body = evidence;
+      state.stage = selectedScope ? 'background_probe_complete' : 'probe_complete';
+      if (selectedScope) state.attested = false;
     }
     state.permit = null;
     persistState();

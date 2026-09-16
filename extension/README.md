@@ -1,5 +1,16 @@
 # Chrome extension boundary
 
+The approved selected-body source path is separate from setup and page probes.
+Private `backgroundSelectedConfig` pins principal, personal account context and
+one conversation. **Fetch selected conversation once** invokes the fixed
+background collector only after a trusted popup gesture. A fresh session and
+one cookie-free body GET each require durable native permission. Tokens remain
+in attempt-local memory for at most 60 seconds, are dropped at body dispatch,
+and never enter browser storage or native/popup output. Separate persisted
+fences preserve all previous attempts; failures cannot retry. Public
+configuration is undefined. Completion means `background_probe_complete`,
+not workspace attestation, catalog completion, import or indexing.
+
 T02 source modules provide a bounded, fixed MAIN-world collector, an explicitly
 owned-document bridge, and a sequential protocol-v1 probe client. `manifest.json`
 now defines an MV3 qualification package with an explicit popup and

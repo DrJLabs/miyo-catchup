@@ -12,11 +12,13 @@
   Synthetic page/native/private-staging tests do not qualify real Chrome.
   The operator supplied a screenshot of the expected disabled MV3 popup.
   An operator screenshot confirms the earlier Chrome-to-native local-status
-  check with capture disabled. The custom host now points to a new private
-  background-setup source snapshot. The one-shot live session inspection passed,
-  with a verified identity-only artifact and commit receipt; no body was fetched.
-  Earlier page-startup failures remain locked. No body-capture adapter, importer,
-  capture CLI or service is installed or live-qualified.
+  check with capture disabled. The custom host points to the private selected-body
+  source snapshot. Both the earlier session-only inspection and the separate
+  token-bound one-conversation proof passed live: exact private artifacts and
+  commit receipts were verified, and the foreground receiver stopped cleanly.
+  This qualifies the tested personal-account route, not the visible workspace,
+  catalog or broader capture flow. Earlier page-startup failures remain locked.
+  No importer, capture CLI or service is installed or live-qualified.
   Follow the canonical
   checkpoint for verified coverage and outstanding qualification gates.
 - Machine-specific operations and historical recovery evidence remain outside
@@ -63,8 +65,9 @@ separately gated; update commands and coverage as implementation changes.
 - Never call reconnect/resync/repair endpoints, write index tables/vectors, or
   restart Miyo as an incidental implementation step.
 - Credentials/auth responses stay in the browser page context, except the
-  explicitly approved background setup inspection may handle them in short-lived
-  extension-worker memory. Never cache them or send them to native messaging,
+  explicitly approved background setup and selected-body scopes may handle them
+  in short-lived extension-worker memory. The selected body GET omits cookies;
+  there is no fallback, token refresh or retry. Never cache credentials or send them to native messaging,
   popup, logs or disk. No cookies,
   tokens, personal identifiers, chat bodies, production DBs, runtime receipts,
   machine paths or raw logs in Git, fixtures, CI output or public issues.

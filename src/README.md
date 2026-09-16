@@ -31,6 +31,10 @@ is recorded only in the canonical implementation checkpoint.
   path. Session completion is not probe completion, and changing scope requires
   a different explicitly scoped root, never resetting existing evidence.
   Session-only scope needs no body validator and ignores any supplied callback.
+- `selected-conversation-entry.mjs`: separately configured background selected-body
+  owner/launcher. It accepts only the explicit `background-selected-conversation`
+  scope with a non-null principal/context binding and a separate private root;
+  setup-inspection configuration is not promoted or relabeled.
 - `connection-check.mjs` and `connection-check-entry.mjs`: local-only global status
   endpoint and a ten-minute foreground launcher under kernel-verified `flock`.
   It reuses explicit native-host configuration, has no capture/database/identity

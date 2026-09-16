@@ -93,7 +93,8 @@
                   "catalog",
                   "body",
                   "chunking",
-                  "background_session_check"
+                  "background_session_check",
+                  "background_selected_body"
                 ]
               },
               "uniqueItems": true,

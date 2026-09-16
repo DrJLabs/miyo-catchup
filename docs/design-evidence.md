@@ -66,6 +66,36 @@ and describes [extension cookie handling and policy limits](https://developer.ch
 This supports the implementation choice, not a guarantee of authentication in
 the selected live profile. No browser cookie setting is changed to force success.
 
+## Selected-conversation contract preparation
+
+A further read-only inspection found that both Capture's
+`chatgptAdapter.fetchConversation` and Desktop's `ChatgptAdapter.fetchConversation`
+use `GET /backend-api/conversation/<selected-id>`. Their consumed response fields
+include `conversation_id`, `title`, `create_time`, `update_time`, `mapping` and
+`current_node`. This is distinct from the batch endpoint in our original
+synthetic page fixture. Both stock request helpers send a bearer token and
+cookies; neither inspected helper sets an explicit account-selection header or
+establishes this project's workspace-binding guarantee. Their retry, token cache,
+rendering and synchronization code are not adopted.
+
+The new offline draft checks the selected ID and complete mapping structure,
+without assuming that this source evidence qualifies a live response. It is not
+registered, installed or network-capable. The proposed future body path would
+use a fresh, validated personal-account token in short-lived background memory
+and omit cookies on the body request, avoiding implicit cookie-based workspace
+selection. The operator subsequently approved that narrow authentication/context
+change. Its separate collector/receiver scope is implemented and being qualified;
+this source evidence does not by itself establish a successful live body request.
+
+The [Fetch standard's credentials mode](https://fetch.spec.whatwg.org/#concept-request-credentials-mode)
+controls browser-managed credentials such as cookies; its
+[HTTP-network request steps](https://fetch.spec.whatwg.org/#http-network-or-cache-fetch)
+distinguish those from an explicitly supplied authorization header. This supports
+the proposed browser mechanics, not a claim that ChatGPT accepts cookie-free
+body requests or that its undocumented backend scope is qualified. A failure
+must not trigger a cookie-bearing fallback, token refresh, account switch or
+automatic retry.
+
 ## Evidence policy
 
 Operators retain raw evidence in private state outside this repository. Public

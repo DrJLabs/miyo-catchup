@@ -1,5 +1,14 @@
 # Architecture
 
+The approved T02 selected-body branch uses an explicit popup gesture, a fresh
+session permit, exact personal-account/token binding, a separate body permit
+and one cookie-free selected-conversation GET. It reuses bounded native
+transport to a new private root, stopping at `background_probe_complete` with
+`attested: false`. Tokens stay in short-lived extension memory; no retry,
+fallback, catalog, Miyo write or scheduler is enabled. Setup and failed page
+evidence remain separate. The controlled one-conversation proof has passed for
+the recorded personal-account package, not as a general capture qualification.
+
 This describes the target design. T01 implements the shared contracts,
 framing and local safety/durability foundations. T02 source modules exercise
 the page/native/private-staging boundaries with synthetic inputs; the installed

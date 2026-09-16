@@ -133,22 +133,107 @@ function popup(sendMessage, { startupResponse = {
   type: 'startup_diagnostic', state: 'disabled', reason_code: 'diagnostic_disabled', can_run: false,
 }, startupCalls = [], backgroundResponse = {
   state: 'unconfigured', reason_code: 'configuration_required', scope: 'background-setup-inspection', can_inspect_background: false,
-}, backgroundCalls = [] } = {}) {
+}, backgroundCalls = [], selectedResponse = {
+  state: 'unconfigured', reason_code: 'configuration_required', scope: 'background-selected-conversation', can_fetch_selected: false,
+}, selectedCalls = [] } = {}) {
   const nodes = new Map(['#status', '#start', '#inspect-session', '#inspect-background-session', '#diagnose-startup',
-    '#check-connection', '#connection-status', '#startup-diagnostic-status', '#background-status'].map((id) => [id, {
-    textContent: '', disabled: id === '#start' || id === '#inspect-session' || id === '#inspect-background-session' || id === '#diagnose-startup', handlers: {},
+    '#check-connection', '#connection-status', '#startup-diagnostic-status', '#background-status',
+    '#fetch-selected-conversation', '#selected-status'].map((id) => [id, {
+    textContent: '', disabled: ['#start', '#inspect-session', '#inspect-background-session', '#diagnose-startup', '#fetch-selected-conversation'].includes(id), handlers: {},
     addEventListener(name, handler) { this.handlers[name] = handler; },
   }]));
   const context = vm.createContext({ document: { querySelector: (id) => nodes.get(id) },
     chrome: { runtime: { sendMessage: (message) => {
       if (message.type === 'startup_status') { startupCalls.push(message); return Promise.resolve(startupResponse); }
       if (message.type === 'background_status') { backgroundCalls.push(message); return Promise.resolve(backgroundResponse); }
+      if (message.type === 'selected_status') { selectedCalls.push(message); return Promise.resolve(selectedResponse); }
       return sendMessage(message);
     } } } });
   vm.runInContext(readFileSync(new URL('../extension/popup.mjs', import.meta.url), 'utf8'), context);
   return nodes;
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+const selectedReady = { state: 'ready', reason_code: 'none', scope: 'background-selected-conversation',
+  can_fetch_selected: true, can_start: false, configured: true, qualification_ready: true };
+
+test('popup selected action stays disabled by default and reads status without starting anything', async () => {
+  const selectedCalls = [];
+  const calls = [];
+  const nodes = popup(async (message) => { calls.push(message); return { state: 'unconfigured', can_start: false }; },
+    { selectedCalls });
+  await settle();
+  assert.equal(nodes.get('#fetch-selected-conversation').disabled, true);
+  assert.equal(nodes.get('#selected-status').textContent, 'Selected-conversation qualification is not configured.');
+  assert.deepEqual(selectedCalls.map((message) => message.type), ['selected_status']);
+  nodes.get('#fetch-selected-conversation').handlers.click({ isTrusted: true });
+  assert.deepEqual(calls.map((message) => message.type), ['status']);
+});
+
+test('popup selected readiness requires exact scope, state, reason and qualified configuration', async () => {
+  for (const change of [
+    { scope: 'background-setup-inspection' }, { state: 'unknown' }, { reason_code: 'PRIVATE_REASON' },
+    { can_fetch_selected: false }, { can_start: true }, { configured: false }, { qualification_ready: false },
+  ]) {
+    const nodes = popup(async () => ({ state: 'unconfigured', can_start: false }), {
+      selectedResponse: { ...selectedReady, ...change, raw_error: 'PRIVATE_ERROR' },
+    });
+    await settle();
+    assert.equal(nodes.get('#fetch-selected-conversation').disabled, true);
+    assert.doesNotMatch(nodes.get('#selected-status').textContent, /PRIVATE/);
+  }
+});
+
+test('popup selected action sends exactly one trusted click and never unlocks legacy controls', async () => {
+  const calls = [];
+  let finish;
+  const nodes = popup(async (message) => {
+    calls.push(message);
+    if (message.type === 'fetch_selected_conversation') return new Promise((resolve) => { finish = resolve; });
+    return { state: 'unconfigured', can_start: false };
+  }, { selectedResponse: selectedReady });
+  await settle();
+  assert.equal(nodes.get('#fetch-selected-conversation').disabled, false);
+  nodes.get('#fetch-selected-conversation').handlers.click({ isTrusted: false });
+  assert.deepEqual(calls.map((message) => message.type), ['status']);
+  nodes.get('#fetch-selected-conversation').handlers.click({ isTrusted: true });
+  nodes.get('#fetch-selected-conversation').handlers.click({ isTrusted: true });
+  assert.equal(nodes.get('#fetch-selected-conversation').disabled, true);
+  assert.equal(nodes.get('#check-connection').disabled, true);
+  finish({ state: 'background_probe_complete', reason_code: 'background_probe_complete',
+    scope: 'background-selected-conversation', raw_error: 'PRIVATE_ERROR' });
+  await settle();
+  assert.deepEqual(calls.map((message) => message.type), ['status', 'fetch_selected_conversation']);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), { type: 'fetch_selected_conversation', user_gesture: true });
+  assert.match(nodes.get('#selected-status').textContent, /completed in private staging/);
+  assert.doesNotMatch(nodes.get('#selected-status').textContent, /PRIVATE_ERROR/);
+  assert.equal(nodes.get('#start').disabled, true);
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+  assert.equal(nodes.get('#inspect-background-session').disabled, true);
+  assert.equal(nodes.get('#fetch-selected-conversation').disabled, true);
+});
+
+test('popup selected errors and a spurious ready action reply do not allow retry', async () => {
+  for (const fail of [true, false]) {
+    const calls = [];
+    const nodes = popup(async (message) => {
+      calls.push(message.type);
+      if (message.type === 'fetch_selected_conversation') {
+        if (fail) throw new Error('PRIVATE_ERROR');
+        return selectedReady;
+      }
+      return { state: 'unconfigured', can_start: false };
+    }, { selectedResponse: selectedReady });
+    await settle();
+    nodes.get('#fetch-selected-conversation').handlers.click({ isTrusted: true });
+    await settle();
+    assert.equal(nodes.get('#fetch-selected-conversation').disabled, true);
+    assert.match(nodes.get('#selected-status').textContent, /Do not retry/);
+    assert.doesNotMatch(nodes.get('#selected-status').textContent, /PRIVATE_ERROR/);
+    nodes.get('#fetch-selected-conversation').handlers.click({ isTrusted: true });
+    assert.deepEqual(calls, ['status', 'fetch_selected_conversation']);
+  }
+});
 
 test('popup starts with status only; explicit connection result never enables Start', async () => {
   const calls = [];

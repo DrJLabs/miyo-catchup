@@ -32,11 +32,13 @@ const statusNode = document.querySelector('#status');
 const startNode = document.querySelector('#start');
 const inspectNode = document.querySelector('#inspect-session');
 const inspectBackgroundNode = document.querySelector('#inspect-background-session');
+const fetchSelectedNode = document.querySelector('#fetch-selected-conversation');
 const diagnoseNode = document.querySelector('#diagnose-startup');
 const checkNode = document.querySelector('#check-connection');
 const connectionNode = document.querySelector('#connection-status');
 const startupNode = document.querySelector('#startup-diagnostic-status');
 const backgroundNode = document.querySelector('#background-status');
+const selectedNode = document.querySelector('#selected-status');
 const connectionLabels = new Map([
   ['passed', 'Local connection check passed. Capture is still disabled.'],
   ['unavailable', 'Local connection is unavailable. Ask the operator to check the foreground receiver.'],
@@ -48,6 +50,8 @@ let busy = false;
 let canStart = false;
 let canInspect = false;
 let canInspectBackground = false;
+let canFetchSelected = false;
+let selectedAttempted = false;
 let canDiagnose = false;
 let startupRevision = 1;
 
@@ -109,6 +113,7 @@ function controls() {
   startNode.disabled = busy || !canStart;
   if (inspectNode) inspectNode.disabled = busy || !canInspect;
   if (inspectBackgroundNode) inspectBackgroundNode.disabled = busy || !canInspectBackground;
+  if (fetchSelectedNode) fetchSelectedNode.disabled = busy || !canFetchSelected || selectedAttempted;
   if (diagnoseNode) diagnoseNode.disabled = busy || !canDiagnose;
   checkNode.disabled = busy;
 }
@@ -214,6 +219,37 @@ async function backgroundMessage(value) {
   }
 }
 
+function renderSelected(value) {
+  const safe = value && typeof value === 'object' ? value : {};
+  const scopeMatches = safe.scope === 'background-selected-conversation';
+  const ready = scopeMatches && safe.state === 'ready' && safe.reason_code === 'none'
+    && safe.can_fetch_selected === true && safe.can_start === false
+    && safe.configured === true && safe.qualification_ready === true;
+  canFetchSelected = ready && !selectedAttempted;
+  let text = 'Selected-conversation qualification is unavailable and requires operator review. Do not retry.';
+  if (ready && !selectedAttempted) {
+    text = 'Ready for one selected-conversation request after a fresh session check. The body request uses the approved personal account, without cookies; no Miyo write occurs.';
+  } else if (scopeMatches && safe.state === 'background_probe_complete'
+    && safe.reason_code === 'background_probe_complete') {
+    text = 'The selected conversation completed in private staging. No Miyo write occurred. This attempt remains locked.';
+  } else if (scopeMatches && ['starting', 'running'].includes(safe.state)) {
+    text = 'The one-shot selected-conversation qualification is running. Do not retry.';
+  } else if (scopeMatches && safe.state === 'unconfigured' && safe.reason_code === 'configuration_required') {
+    text = 'Selected-conversation qualification is not configured.';
+  } else if (scopeMatches && safe.state === 'blocked' && safe.reason_code === 'disabled') {
+    text = 'Selected-conversation qualification is disabled.';
+  } else if (scopeMatches && safe.state === 'failed' && safe.reason_code === 'probe_failed') {
+    text = 'Selected-conversation qualification failed with a recorded bounded result. This attempt remains locked; do not retry.';
+  }
+  if (selectedNode) selectedNode.textContent = text;
+  controls();
+}
+
+async function selectedMessage(value) {
+  try { renderSelected(await chrome.runtime.sendMessage(value)); }
+  catch { renderSelected({}); }
+}
+
 startNode.addEventListener('click', (event) => {
   if (!event.isTrusted || busy || !canStart) return;
   busy = true;
@@ -231,6 +267,15 @@ if (inspectBackgroundNode) inspectBackgroundNode.addEventListener('click', (even
   busy = true;
   controls();
   void backgroundMessage({ type: 'inspect_background_session', user_gesture: true })
+    .finally(() => { busy = false; controls(); });
+});
+if (fetchSelectedNode) fetchSelectedNode.addEventListener('click', (event) => {
+  if (!event.isTrusted || busy || !canFetchSelected || selectedAttempted) return;
+  selectedAttempted = true;
+  busy = true;
+  controls();
+  if (selectedNode) selectedNode.textContent = 'Starting one selected-conversation qualification. Do not retry.';
+  void selectedMessage({ type: 'fetch_selected_conversation', user_gesture: true })
     .finally(() => { busy = false; controls(); });
 });
 if (diagnoseNode) diagnoseNode.addEventListener('click', (event) => {
@@ -260,4 +305,5 @@ checkNode.addEventListener('click', (event) => {
 });
 void message({ type: 'status' });
 void backgroundMessage({ type: 'background_status' });
+void selectedMessage({ type: 'selected_status' });
 void startupMessage({ type: 'startup_status' });

@@ -3,21 +3,22 @@
 Daily and on-demand ChatGPT catch-up into native Miyo Chats, with Miyo's native
 ChatGPT sync left disconnected.
 
-**Status: T01 complete offline; T02 live qualification pending.** Versioned contracts, bounded native framing,
-private-path validation and SQLite/process-ownership qualification are
-implemented and tested. T02 adds an MV3 qualification package,
-native-host entry point and private-socket/staging modules, not a live-qualified
-body-capture extension or service. Real ChatGPT body capture remains fail-closed; a separately
-approved private-constructor background setup inspection can make one bounded,
-authenticated session request and establish sanitized identity evidence. It does
-not fetch a conversation or attest a workspace. The public package leaves this
-path disabled.
-The private handoff package has now completed one live background session
-inspection: its identity-only artifact and durable native commit receipt were
-verified, with one session permit and no body permit. This qualifies that setup
-path, not conversation capture or visible-workspace binding. The foreground
-receiver was stopped afterward. Authenticated body capture remains pending.
-No Miyo data change has been performed.
+**Status: T01 complete offline; T02 selected-conversation proof passed live.**
+The private qualification package completed one separately permitted session
+check and one token-bound, cookie-free selected-conversation GET. Sanitized
+identity and original body bytes were committed privately; selected identity,
+response contract, byte counts and SHA-256 matched the durable receipts. The
+foreground receiver stopped cleanly afterward. Earlier session-only evidence
+and failed page attempts remain preserved.
+
+This establishes the tested personal-account browser-to-staging route, not
+visible-workspace attestation, catalog completeness, native Miyo import or a
+production capture service. Public configuration remains disabled and the
+one-shot private attempt remains terminal. No Miyo data change was performed.
+Versioned contracts, bounded native transport, private-path/SQLite ownership
+and failure cases also have offline coverage; that coverage is distinct from
+the controlled live result. T02 is closed within this amended scope; the T03
+coordinator is next, while catalog and importer qualification remain later work.
 See the [T02 qualification boundary](docs/t02-qualification.md).
 
 This is an independent integration project, not an official Miyo or OpenAI product.
@@ -78,7 +79,7 @@ and remaining gates in the [implementation checkpoint](docs/implementation-plan.
 ```text
 extension/       Qualification package source; real-page capture disabled
 src/             Offline foundations, native entry/socket and private probe receiver
-adapters/        Version-qualified integration adapters (reserved)
+adapters/        Shared selected-response contract; Miyo adapters remain reserved
 schemas/         Version 1 protocol/configuration/status/receipt contracts
 tests/           Offline contract and runtime tests; synthetic fixtures only
 systemd/         Future user service/timer templates (reserved)
@@ -88,8 +89,9 @@ docs/            Canonical specification and supporting documentation
 ```
 
 Reserved runtime directories retain ownership READMEs. T02's explicitly paired,
-one-conversation browser-to-local proof remains the next gate; synthetic tests
-do not close it. The full coordinator/importer follows that proof.
+one-conversation browser-to-local proof has passed for the recorded private
+package; synthetic tests alone do not establish it. The full coordinator/importer
+follows this scoped closeout, not automatic production activation.
 
 ## Licensing
 
