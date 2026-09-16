@@ -32,6 +32,40 @@ Initial runtime probes used Node 22.23.2, systemd 255 and Chrome 153. Node SQLit
 basic in-memory transactions worked but remained experimental. Recheck the
 actual installation and conduct crash/durability tests before claiming support.
 
+## Read-only stock implementation comparison
+
+The installed Miyo Capture 0.3.7 extension and the mounted Desktop service bundle
+were inspected as shipped code, without invoking their runtime or reading browser
+credentials, chat state or application databases. The comparison explains why
+their successful authentication route is not proof of this project's page bridge:
+
+| Component | Observed stock behavior | Consequence for this project |
+|---|---|---|
+| Capture background | Fetches the session directly and caches its token in extension session storage; no `scripting` permission or MAIN-world collector | Can avoid our failing script-injection boundary; the approved adaptation uses short-lived memory without the stock token cache |
+| Capture native sync | Reads cookies and sends them through the stock native host | Do not adopt or invoke this credential handoff |
+| Desktop service | Builds a cookie header, fetches the session/token server-side and schedules polling | Conflicts with page-local credentials and sync-off operation; not a startup fix |
+| Failure handling | Separates HTTP outcomes and transport handling, but some extension errors include body snippets/raw messages | Keep distinct failure classes, without copying sensitive error text or retry behavior |
+
+Shipped-source evidence: Capture `manifest.json`, `background.js` session/cache
+and cookie-handoff paths, and `popup.js` tab creation; Desktop `server.js`
+`ChatgptAdapter.fetchAccessToken`/`receiveCookies`, and `cli.js` native
+`handleMessage`. Private installation paths and identifiers remain outside Git.
+No vendor implementation was copied into this repository.
+
+The initial response was more precise classification and a test composing the
+real serialized collector with the browser bridge. The operator subsequently
+approved a narrow extension-background authentication adaptation, superseding
+packaging the additional page diagnostic. The new setup scope retains native
+permits and one-shot fences, does not cache a token or export cookies, and cannot
+fetch conversations. Neither source inspection nor a simulated Chrome API
+establishes current live endpoint or browser compatibility.
+
+Chrome documents that extension workers can make cross-origin requests with
+[host permissions](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests),
+and describes [extension cookie handling and policy limits](https://developer.chrome.com/docs/extensions/develop/concepts/storage-and-cookies).
+This supports the implementation choice, not a guarantee of authentication in
+the selected live profile. No browser cookie setting is changed to force success.
+
 ## Evidence policy
 
 Operators retain raw evidence in private state outside this repository. Public

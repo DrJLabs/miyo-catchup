@@ -18,6 +18,7 @@ const setupBinding = Object.freeze({
 });
 const browser = '11111111-1111-4111-8111-111111111111';
 const documentId = 'owned-document-1';
+const collectorInstanceId = '22222222-2222-4222-8222-222222222222';
 const conversationId = 'conversation-t02';
 
 function clockFixture() {
@@ -110,6 +111,29 @@ function sessionStart(receiver) {
     fields: fenced, permit: permit.result, documentId,
     requests: { claim: claimRequest, permit: permitRequest, dispatch: dispatchRequest },
   };
+}
+
+function backgroundSessionStart(receiver) {
+  const result = receiver.request(makeRequest('hello', {
+    extension_version: '1.0.0', browser_instance_id: browser,
+    capabilities: ['session_check', 'chunking', 'background_session_check'],
+  }));
+  assertReply(result, 'hello');
+  const claimRequest = makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: null, context_id: null,
+  });
+  const claim = receiver.request(claimRequest);
+  assertReply(claim, 'claim_work');
+  const fields = claim.result.lease;
+  const fenced = { run_id: fields.run_id, attempt_id: fields.attempt_id, lease_generation: fields.lease_generation };
+  const permit = receiver.request(makeRequest('request_permit', { work_unit_id: fields.work_unit }, fenced));
+  assertReply(permit, 'request_permit');
+  const dispatchRequest = makeRequest('dispatch_started', {
+    browser_instance_id: browser, collector_instance_id: collectorInstanceId,
+  }, { ...fenced, permit_id: permit.result.permit_id });
+  const started = receiver.request(dispatchRequest);
+  assertReply(started, 'dispatch_started');
+  return { fields: fenced, permit: permit.result, requests: { claim: claimRequest, permit, dispatch: dispatchRequest } };
 }
 
 function sendJson(receiver, transfer, value) {
@@ -309,6 +333,68 @@ test('T02 setup-inspection requires a null context and account-to-principal mapp
     conversationId, scope: 'setup-inspection', ownership: () => true,
   }), /account_id/);
   assert.equal(readdirSync(root).length, 0);
+});
+
+test('T02 background setup inspection is a distinct, non-attesting terminal scope', (t) => {
+  const root = temporaryRoot(t);
+  const time = clockFixture();
+  const receiver = createProbeReceiver({
+    root, trustedBoundary: root, binding: setupBinding, conversationId,
+    clock: time.clock, scope: 'background-setup-inspection', ownership: () => true,
+  });
+  t.after(() => receiver.close());
+  const transfer = backgroundSessionStart(receiver);
+  const raw = sendJson(receiver, transfer, { principal_id: setupBinding.principal_id, context_id: 'background-context' });
+  const receipt = commit(receiver, transfer, raw.bytes, raw.digest);
+  assert.equal(receipt.ok, true);
+  const snapshot = receiver.snapshot();
+  assert.equal(snapshot.background_setup_complete, true);
+  assert.equal(snapshot.setup_complete, false);
+  assert.equal(snapshot.probe_complete, false);
+  assert.equal(snapshot.attested, false);
+
+  const stateDb = new DatabaseSync(join(root, 'probe-state.db'));
+  const stored = JSON.parse(stateDb.prepare('SELECT state FROM probe_state WHERE id = 1').get().state);
+  stateDb.close();
+  assert.equal(stored.scope, 'background-setup-inspection');
+  assert.equal(stored.collector_instance_id, collectorInstanceId);
+  assert.equal(stored.attested, false);
+  receiver.close();
+  assert.throws(() => createProbeReceiver({
+    root, trustedBoundary: root, binding: setupBinding, conversationId,
+    scope: 'setup-inspection', ownership: () => true,
+  }), /scope|binding|conversation/);
+  const reopened = createProbeReceiver({
+    root, trustedBoundary: root, binding: setupBinding, conversationId,
+    scope: 'background-setup-inspection', ownership: () => true,
+  });
+  t.after(() => reopened.close());
+  assert.deepEqual(reopened.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: null, context_id: null,
+  })).error, { code: 'blocked' });
+});
+
+test('T02 background capability and collector identity are scope-fenced', (t) => {
+  const backgroundRoot = temporaryRoot(t);
+  const receiver = createProbeReceiver({
+    root: backgroundRoot, trustedBoundary: backgroundRoot, binding: setupBinding,
+    conversationId, scope: 'background-setup-inspection', ownership: () => true,
+  });
+  t.after(() => receiver.close());
+  assert.deepEqual(receiver.request(makeRequest('hello', {
+    extension_version: '1.0.0', browser_instance_id: browser,
+    capabilities: ['session_check', 'chunking'],
+  })).error, { code: 'blocked' });
+  const pageRoot = temporaryRoot(t);
+  const pageReceiver = createProbeReceiver({
+    root: pageRoot, trustedBoundary: pageRoot, binding: setupBinding,
+    conversationId, scope: 'setup-inspection', ownership: () => true,
+  });
+  t.after(() => pageReceiver.close());
+  assert.deepEqual(pageReceiver.request(makeRequest('hello', {
+    extension_version: '1.0.0', browser_instance_id: browser,
+    capabilities: ['session_check', 'chunking', 'background_session_check'],
+  })).error, { code: 'blocked' });
 });
 
 test('T02 session transfers must be canonical UTF-8 JSON in every scope', (t) => {

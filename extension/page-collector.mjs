@@ -264,6 +264,7 @@ export function pageCollector(command) {
   let conversationId = null;
   let adapter = null;
   let adapterMode = null;
+  let startupOnly = false;
   let accountSelection = null;
   let sessionVerified = false;
   let bodyFetched = false;
@@ -306,10 +307,14 @@ export function pageCollector(command) {
       const selectedAdapter = adapterFor(value.qualification);
       if (!selectedAdapter) return fail('unqualified_adapter');
       const setup = value.qualification.adapter_id === SETUP_ADAPTER_ID;
+      const requestedStartupOnly = value.startup_only;
+      if (setup && requestedStartupOnly === true) startupOnly = true;
+      if (!setup && requestedStartupOnly !== undefined) return fail('invalid_command');
       if (setup) {
         if (origin !== 'https://chatgpt.com' || value.binding.context_id !== null
           || !plainObject(value.qualification)
-          || !keysExactly(value, ['operation', 'binding', 'conversation_id', 'qualification'])
+          || !keysExactly(value, ['operation', 'binding', 'conversation_id', 'qualification'], ['startup_only'])
+          || (requestedStartupOnly !== undefined && requestedStartupOnly !== true)
           || !boundedId(value.conversation_id)) return fail('invalid_binding');
         accountSelection = readAccountSelection();
         if (accountSelection === null) return fail('context_mismatch');
@@ -328,6 +333,7 @@ export function pageCollector(command) {
     }
 
     if (!initialized) return fail('uninitialized');
+    if (startupOnly && value.operation === 'dispatch') return fail('unqualified_adapter');
     if (value.operation === 'dispatch') {
       if (!keysExactly(value, ['operation', 'permit']) || !plainObject(value.permit)
         || !keysExactly(value.permit, ['permit_id', 'request_kind', 'arguments', 'valid_until'])

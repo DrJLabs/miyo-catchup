@@ -129,13 +129,22 @@ test('connection check and capture share one in-process flight guard', async () 
   assert.equal(opens, 1);
 });
 
-function popup(sendMessage) {
-  const nodes = new Map(['#status', '#start', '#inspect-session', '#check-connection', '#connection-status'].map((id) => [id, {
-    textContent: '', disabled: id === '#start' || id === '#inspect-session', handlers: {},
+function popup(sendMessage, { startupResponse = {
+  type: 'startup_diagnostic', state: 'disabled', reason_code: 'diagnostic_disabled', can_run: false,
+}, startupCalls = [], backgroundResponse = {
+  state: 'unconfigured', reason_code: 'configuration_required', scope: 'background-setup-inspection', can_inspect_background: false,
+}, backgroundCalls = [] } = {}) {
+  const nodes = new Map(['#status', '#start', '#inspect-session', '#inspect-background-session', '#diagnose-startup',
+    '#check-connection', '#connection-status', '#startup-diagnostic-status', '#background-status'].map((id) => [id, {
+    textContent: '', disabled: id === '#start' || id === '#inspect-session' || id === '#inspect-background-session' || id === '#diagnose-startup', handlers: {},
     addEventListener(name, handler) { this.handlers[name] = handler; },
   }]));
   const context = vm.createContext({ document: { querySelector: (id) => nodes.get(id) },
-    chrome: { runtime: { sendMessage } } });
+    chrome: { runtime: { sendMessage: (message) => {
+      if (message.type === 'startup_status') { startupCalls.push(message); return Promise.resolve(startupResponse); }
+      if (message.type === 'background_status') { backgroundCalls.push(message); return Promise.resolve(backgroundResponse); }
+      return sendMessage(message);
+    } } } });
   vm.runInContext(readFileSync(new URL('../extension/popup.mjs', import.meta.url), 'utf8'), context);
   return nodes;
 }
@@ -211,4 +220,269 @@ test('popup race keeps setup inspection disabled while a status request is pendi
   finishStatus({ state: 'ready', can_start: false, can_inspect: true, scope: 'setup-inspection' });
   await settle();
   assert.equal(nodes.get('#inspect-session').disabled, false);
+});
+
+test('popup shows fixed startup diagnostics without enabling another attempt', async () => {
+  for (const diagnostic of [
+    { reason_code: 'page_context_unavailable', expected: 'unambiguous account context' },
+    { reason_code: 'page_binding_failed', expected: 'bind the qualification page document' },
+    { reason_code: 'page_initialization_failed', expected: 'does not distinguish the cause' },
+    { diagnostic_code: 'legacy_after_document_binding', expected: 'original startup error is unavailable' },
+  ]) {
+    const calls = [];
+    const nodes = popup(async (message) => {
+      calls.push(message.type);
+      return { state: 'blocked', scope: 'setup-inspection', can_start: true, can_inspect: true,
+        ...diagnostic, raw_error: 'PRIVATE_ERROR_SENTINEL' };
+    });
+    await settle();
+    assert.equal(nodes.get('#status').textContent.includes(diagnostic.expected), true);
+    assert.match(nodes.get('#status').textContent, /remains locked/);
+    assert.doesNotMatch(nodes.get('#status').textContent, /PRIVATE/);
+    assert.equal(nodes.get('#start').disabled, true);
+    assert.equal(nodes.get('#inspect-session').disabled, true);
+    nodes.get('#inspect-session').handlers.click({ isTrusted: true });
+    assert.deepEqual(calls, ['status']);
+  }
+});
+
+test('popup ignores unknown diagnostic and reason text', async () => {
+  const nodes = popup(async () => ({ state: 'blocked', reason_code: 'PRIVATE_REASON_SENTINEL',
+    diagnostic_code: 'PRIVATE_ERROR_SENTINEL', can_start: false }));
+  await settle();
+  assert.equal(nodes.get('#status').textContent, 'Qualification is blocked and requires operator review.');
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+});
+
+test('popup reads startup status without running diagnosis or changing qualification state', async () => {
+  const calls = [];
+  const startupCalls = [];
+  const nodes = popup(async (message) => {
+    calls.push(message);
+    return { state: 'unconfigured', can_start: false };
+  }, { startupCalls });
+  await settle();
+  assert.equal(nodes.get('#diagnose-startup').disabled, true);
+  assert.equal(nodes.get('#startup-diagnostic-status').textContent, 'Startup diagnosis is disabled.');
+  assert.deepEqual(calls.map((message) => message.type), ['status']);
+  assert.deepEqual(startupCalls.map((message) => message.type), ['startup_status']);
+});
+
+test('popup sends only an explicit trusted startup diagnostic request', async () => {
+  const calls = [];
+  const nodes = popup(async (message) => {
+    calls.push(message);
+    if (message.type === 'diagnose_startup') {
+      return { type: 'startup_diagnostic', state: 'passed', reason_code: 'startup_complete', can_run: false };
+    }
+    return { state: 'unconfigured', can_start: false };
+  }, { startupResponse: { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', can_run: true } });
+  await settle();
+  assert.equal(nodes.get('#diagnose-startup').disabled, false);
+  nodes.get('#diagnose-startup').handlers.click({ isTrusted: false });
+  assert.deepEqual(calls.map((message) => message.type), ['status']);
+  nodes.get('#diagnose-startup').handlers.click({ isTrusted: true });
+  assert.equal(nodes.get('#diagnose-startup').disabled, true);
+  await settle();
+  assert.deepEqual(calls.map((message) => message.type), ['status', 'diagnose_startup']);
+  assert.equal(nodes.get('#startup-diagnostic-status').textContent,
+    'Startup diagnosis passed initialization only. No session or conversation was fetched, and qualification remains locked.');
+  assert.equal(nodes.get('#start').disabled, true);
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+});
+
+test('popup treats all unknown startup state or reason data as a safe uncertain message', async () => {
+  const nodes = popup(async () => ({ state: 'unconfigured', can_start: false }), {
+    startupResponse: { type: 'startup_diagnostic', state: 'private_state', reason_code: 'PRIVATE_ERROR', can_run: true },
+  });
+  await settle();
+  assert.equal(nodes.get('#startup-diagnostic-status').textContent,
+    'Startup diagnosis is uncertain and requires operator review.');
+  assert.equal(nodes.get('#diagnose-startup').disabled, true);
+});
+
+test('popup rejects incompatible startup state and reason pairs before enabling diagnosis', async () => {
+  for (const startupResponse of [
+    { type: 'startup_diagnostic', state: 'ready', reason_code: 'PRIVATE_REASON', can_run: true },
+    { type: 'startup_diagnostic', state: 'passed', reason_code: 'none', can_run: true },
+    { type: 'startup_diagnostic', state: 'disabled', reason_code: 'none', can_run: true },
+    { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', revision: 1, can_run: true },
+    { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', revision: null, can_run: true },
+    { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', revision: '2', can_run: true },
+    { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', revision: 3, can_run: true },
+  ]) {
+    const nodes = popup(async () => ({ state: 'unconfigured', can_start: false }), { startupResponse });
+    await settle();
+    assert.equal(nodes.get('#diagnose-startup').disabled, true);
+    assert.equal(nodes.get('#startup-diagnostic-status').textContent,
+      'Startup diagnosis is uncertain and requires operator review.');
+  }
+});
+
+test('popup accepts legacy startup responses and identifies revision two without changing the command', async () => {
+  const legacy = popup(async () => ({ state: 'unconfigured', can_start: false }), {
+    startupResponse: { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', can_run: true },
+  });
+  await settle();
+  assert.equal(legacy.get('#diagnose-startup').textContent, 'Diagnose startup (no fetch)');
+  assert.equal(legacy.get('#startup-diagnostic-status').textContent, 'Startup diagnosis is ready.');
+
+  const calls = [];
+  const v2 = popup(async (message) => {
+    calls.push(message);
+    if (message.type === 'diagnose_startup') {
+      return { type: 'startup_diagnostic', state: 'passed', reason_code: 'startup_complete', revision: 2, can_run: false };
+    }
+    return { state: 'unconfigured', can_start: false };
+  }, { startupResponse: { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', revision: 2, can_run: true } });
+  await settle();
+  assert.equal(v2.get('#diagnose-startup').textContent, 'Diagnose startup v2 (no fetch)');
+  assert.equal(v2.get('#startup-diagnostic-status').textContent,
+    'Startup diagnosis v2 is ready. Prior attempts stay locked.');
+  v2.get('#diagnose-startup').handlers.click({ isTrusted: true });
+  await settle();
+  assert.deepEqual(calls.map((message) => message.type), ['status', 'diagnose_startup']);
+  assert.equal(v2.get('#startup-diagnostic-status').textContent,
+    'Startup diagnosis passed initialization only. No session or conversation was fetched, and qualification remains locked.');
+});
+
+test('popup uses fixed v2 labels and redacts arbitrary startup failure details', async () => {
+  const labels = [
+    ['prior_diagnostic_required', 'failed prior diagnostic requires review'],
+    ['page_script_rejected', 'Chrome rejected the collector script call'],
+    ['page_script_timeout', 'did not finish the collector script call before the deadline'],
+    ['page_document_changed', 'page changed before startup finished'],
+    ['page_result_invalid', 'unusable collector result'],
+    ['page_result_missing', 'returned no collector result'],
+    ['page_collector_rejected', 'collector rejected its initialization command'],
+    ['page_collector_closed', 'collector was already closed'],
+  ];
+  for (const [reason_code, expected] of labels) {
+    const nodes = popup(async () => ({ state: 'unconfigured', can_start: false }), {
+      startupResponse: { type: 'startup_diagnostic', state: 'blocked', reason_code,
+        revision: 2, can_run: true, raw_error: 'PRIVATE_STARTUP_SENTINEL' },
+    });
+    await settle();
+    assert.match(nodes.get('#startup-diagnostic-status').textContent, new RegExp(expected));
+    assert.doesNotMatch(nodes.get('#startup-diagnostic-status').textContent, /PRIVATE_STARTUP_SENTINEL/);
+    assert.equal(nodes.get('#diagnose-startup').disabled, true);
+  }
+});
+
+test('popup keeps fixed labels for uncertain startup document and storage failures', async () => {
+  for (const [reason, expected] of [
+    ['document_lost', 'lost ownership of the qualification document'],
+    ['storage_unavailable', 'could not read local state safely'],
+  ]) {
+    const nodes = popup(async () => ({ state: 'unconfigured', can_start: false }), {
+      startupResponse: { type: 'startup_diagnostic', state: 'uncertain', reason_code: reason, can_run: false },
+    });
+    await settle();
+    assert.match(nodes.get('#startup-diagnostic-status').textContent, new RegExp(expected));
+    assert.equal(nodes.get('#diagnose-startup').disabled, true);
+  }
+});
+
+test('startup diagnostic terminal result remains disabled and does not unlock inspect or start', async () => {
+  const nodes = popup(async (message) => message.type === 'diagnose_startup'
+    ? { type: 'startup_diagnostic', state: 'blocked', reason_code: 'page_binding_failed', can_run: false }
+    : { state: 'unconfigured', can_start: false }, {
+    startupResponse: { type: 'startup_diagnostic', state: 'ready', reason_code: 'none', can_run: true },
+  });
+  await settle();
+  nodes.get('#diagnose-startup').handlers.click({ isTrusted: true });
+  await settle();
+  assert.match(nodes.get('#startup-diagnostic-status').textContent, /bind the qualification page document/);
+  assert.equal(nodes.get('#diagnose-startup').disabled, true);
+  assert.equal(nodes.get('#start').disabled, true);
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+});
+
+test('popup reads background status independently and keeps the public control disabled', async () => {
+  const calls = [];
+  const backgroundCalls = [];
+  const nodes = popup(async (message) => {
+    calls.push(message);
+    return { state: 'unconfigured', can_start: false };
+  }, { backgroundCalls });
+  await settle();
+  assert.equal(nodes.get('#inspect-background-session').disabled, true);
+  assert.equal(nodes.get('#background-status').textContent, 'Background session inspection is not configured.');
+  assert.deepEqual(calls.map((message) => message.type), ['status']);
+  assert.deepEqual(backgroundCalls.map((message) => message.type), ['background_status']);
+});
+
+test('background inspection requires exact scope and readiness', async () => {
+  for (const backgroundResponse of [
+    { state: 'ready', reason_code: 'none', scope: 'setup-inspection', can_inspect_background: true },
+    { state: 'ready', reason_code: 'none', scope: 'background-setup-inspection', can_inspect_background: false },
+  ]) {
+    const nodes = popup(async () => ({ state: 'unconfigured', can_start: false }), { backgroundResponse });
+    await settle();
+    assert.equal(nodes.get('#inspect-background-session').disabled, true);
+    assert.match(nodes.get('#background-status').textContent, /unavailable until qualification is configured/);
+  }
+});
+
+test('background inspection uses one trusted click and a fixed completion message', async () => {
+  const calls = [];
+  const nodes = popup(async (message) => {
+    calls.push(message);
+    if (message.type === 'inspect_background_session') {
+      return { state: 'background_setup_inspection_complete',
+        reason_code: 'background_setup_inspection_complete', raw_error: 'PRIVATE_BACKGROUND_ERROR' };
+    }
+    return { state: 'unconfigured', can_start: false };
+  }, { backgroundResponse: { state: 'ready', reason_code: 'none',
+    scope: 'background-setup-inspection', can_inspect_background: true } });
+  await settle();
+  assert.equal(nodes.get('#inspect-background-session').disabled, false);
+  nodes.get('#inspect-background-session').handlers.click({ isTrusted: false });
+  assert.deepEqual(calls.map((message) => message.type), ['status']);
+  nodes.get('#inspect-background-session').handlers.click({ isTrusted: true });
+  assert.equal(nodes.get('#inspect-background-session').disabled, true);
+  await settle();
+  assert.deepEqual(calls.map((message) => message.type), ['status', 'inspect_background_session']);
+  assert.equal(JSON.stringify(calls[1]), '{"type":"inspect_background_session","user_gesture":true}');
+  assert.equal(nodes.get('#background-status').textContent,
+    'Background session inspection completed. One session request was made; no conversation was fetched.');
+  assert.doesNotMatch(nodes.get('#background-status').textContent, /PRIVATE_BACKGROUND_ERROR/);
+  assert.equal(nodes.get('#start').disabled, true);
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+});
+
+test('background inspection shares the busy guard with all other popup actions', async () => {
+  let release;
+  const nodes = popup((message) => message.type === 'status'
+    ? Promise.resolve({ state: 'ready', can_start: true })
+    : new Promise((resolve) => { release = resolve; }), {
+    backgroundResponse: { state: 'ready', reason_code: 'none',
+      scope: 'background-setup-inspection', can_inspect_background: true },
+  });
+  await settle();
+  nodes.get('#inspect-background-session').handlers.click({ isTrusted: true });
+  assert.equal(nodes.get('#inspect-background-session').disabled, true);
+  assert.equal(nodes.get('#start').disabled, true);
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+  assert.equal(nodes.get('#check-connection').disabled, true);
+  release({ state: 'unconfigured', can_start: false });
+  await settle();
+});
+
+test('background failure reasons are fixed and never expose returned error data', async () => {
+  for (const [reason, expected] of [
+    ['probe_failed', 'failed with a bounded result'],
+    ['native_unavailable', 'could not reach the local worker'],
+    ['dispatch_uncertain', 'uncertain and requires operator review'],
+    ['storage_unavailable', 'could not read local state safely'],
+  ]) {
+    const nodes = popup(async () => ({ state: 'unconfigured', can_start: false }), {
+      backgroundResponse: { state: 'blocked', reason_code: reason, scope: 'background-setup-inspection',
+        error: 'PRIVATE_BACKGROUND_ERROR' },
+    });
+    await settle();
+    assert.match(nodes.get('#background-status').textContent, new RegExp(expected));
+    assert.doesNotMatch(nodes.get('#background-status').textContent, /PRIVATE_BACKGROUND_ERROR/);
+    assert.equal(nodes.get('#inspect-background-session').disabled, true);
+  }
 });

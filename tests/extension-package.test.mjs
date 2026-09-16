@@ -23,6 +23,10 @@ test('T02 package contains no automatic alarm/startup or remote-code hooks', asy
   assert.match(background, /installBackground/);
   assert.doesNotMatch(background, /alarms\.create|connectNative\(|tabs\.create\(/);
   assert.match(popup, /user_gesture: true/);
+  assert.match(popup, /startup_status/);
+  assert.match(popup, /diagnose_startup/);
+  assert.match(popup, /background_status/);
+  assert.match(popup, /inspect_background_session/);
   assert.doesNotMatch(popup, /eval\(|new Function\(|fetch\(/);
 });
 
@@ -33,12 +37,19 @@ test('popup uses semantic controls and does not display configuration identifier
   assert.match(html, /<p id="status" role="status" aria-live="polite">/);
   assert.match(html, /<button id="start" type="button" disabled>/);
   assert.match(html, /<button id="inspect-session" type="button" disabled>/);
+  assert.match(html, /<button id="inspect-background-session" type="button" disabled>Inspect session in extension<\/button>/);
+  assert.match(html, /<p id="background-status" role="status" aria-live="polite">/);
+  assert.match(html, /<button id="diagnose-startup" type="button" disabled>Diagnose startup \(no fetch\)<\/button>/);
+  assert.match(html, /<p id="startup-diagnostic-status" role="status" aria-live="polite">/);
+  assert.match(html, /does not open a native connection or issue a collector fetch/);
   assert.doesNotMatch(popup, /conversation_id|principal_id|context_id|contract_fingerprint/);
 });
 
 test('public qualification config has no enabled account or context', async () => {
   const config = await text('qualification-config.mjs');
   assert.match(config, /export const setupConfig = undefined/);
+  assert.match(config, /export const backgroundSetupConfig = undefined/);
+  assert.match(config, /export const startupDiagnosticEnabled = false/);
   assert.match(config, /chatgpt-setup-2026-09-16/);
   assert.doesNotMatch(config, /browser_instance_id|conversation_id|principal_id|context_id/);
 });

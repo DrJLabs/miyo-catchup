@@ -1,9 +1,12 @@
 # T02 qualification boundary
 
-T02 is **in progress, not live-qualified**. The operator has supplied screenshot
-evidence of a passing Chrome-to-native local-status check with capture disabled;
-this is not an authenticated capture proof. The qualification package and synthetic
-tests below do not establish that proof. The single progress
+T02 is **in progress; body capture is not live-qualified**. The operator's
+background-session success screenshot is backed by a verified identity-only
+artifact and durable native commit receipt. One session permit and no body
+permit were recorded; the receiver was stopped afterward. This proves the
+bounded setup path, not visible-workspace attestation or conversation capture.
+The qualification package and synthetic tests below do not establish that
+remaining body proof. The single progress
 checkpoint remains in [the implementation plan](implementation-plan.md#definition-of-done-and-current-checkpoint).
 
 ## Implemented boundaries
@@ -11,8 +14,9 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
 - `extension/page-collector.mjs`: fixed serializable MAIN-world function;
   separately permitted session/body operations, page-local credentials, bounded
   response buffering and pull/release transfer. Full session/body qualification
-  remains synthetic-only. A fixed, separately configured real-page setup adapter
-  permits one sanitized session inspection; it refuses all body work.
+  remains synthetic-only. The current approved setup path is a separate
+  extension-background collector, not a page body adapter; it permits one
+  sanitized session inspection and refuses all body work.
 - `extension/browser-bridge.mjs`: explicit creation of one inactive owned tab,
   top-frame/document targeting, persistent sanitized ownership evidence, and
   rejection after navigation or restart uncertainty. It never adopts existing
@@ -26,17 +30,43 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
   `runSessionCheck` entry advertises/claims only a session check and stops after
   its durable receipt with `session_check_complete`, never `probe_complete`.
   The separate `runSetupInspection` path records an observed context for one
-  expected principal, then stops with `setup_inspection_complete`. All paths
+  expected principal, then stops with `setup_inspection_complete`. The current
+  background setup path uses a unique `collector_instance_id` (distinct from a
+  page `document_id`), waits for the permit and durable dispatch acknowledgement,
+  then makes exactly one session `GET`; it stops with
+  `background_setup_inspection_complete`. All paths
   reject oversized, multi-chunk, noncanonical or extra-field session
   outcomes before native forwarding; only the exact configured identity/context
   outcome may cross that boundary (setup permits only the initially unknown
   context ID to be observed).
+- The protocol schema retains a `reconcile_dispatch` variant for validation
+  compatibility, but T02 does not advertise or invoke background reconciliation;
+  the background receiver rejects that operation as blocked. A lost
+  acknowledgement, worker loss or uncertain dispatch remains terminal and
+  requires operator review; reopening is locked and no retry is implied.
 - `extension/manifest.json`, `background.mjs`, `probe-controller.mjs` and popup:
   minimal MV3 qualification package, exact internal-popup sender, explicit Start
   gesture, closed private configuration and persistent one-attempt fence. Startup
   has no native/tab/alarm/fetch effect. The full-capture adapter registry is
   empty; storage configuration alone cannot enable real-page capture or setup.
   Setup requires private packaged configuration and its distinct popup gesture.
+  The public package leaves background setup disabled; its private action is
+  **Inspect session in extension**. The path has no token cache, Cookies API
+  access or native credential export, and a candidate backend context is not
+  workspace attestation. Existing failed records remain terminal and preserved.
+  Startup failure codes distinguish tab creation, page load, document binding,
+  collector initialization, unavailable context and local storage. A blocked
+  attempt remains blocked across popup restart. Legacy diagnostics report only
+  a saved milestone when the matching ownership record supports it; they cannot
+  reconstruct a discarded error. Reading status never resets or retries work.
+  A separate, private-enabled **Diagnose startup (no fetch)** action is available
+  only after a terminal failed setup attempt. It has independent durable fence
+  and document records, never changes the old owned-document record,
+  and cannot connect to native messaging. Its page collector has a sticky
+  startup-only mode: initialization and abort are allowed, but all dispatches
+  are refused even with a plausible permit. No collector-issued HTTP request
+  occurs; normal ChatGPT page-load traffic may still occur. A pass proves only
+  initialization and cleanup, not principal/context qualification or capture.
 - `extension/connection-check.mjs`: explicit popup-only local transport check.
   It sends one protocol-v1 `get_status` request, accepts only fresh status from
   the capture-disabled qualification endpoint, and closes the native port.
@@ -127,6 +157,44 @@ Popup markup/controller checks do not establish live keyboard or visual behavior
 Temporary-root trust exceptions and injected validators are test/harness code,
 never caller-selectable wire options.
 
+## Isolated startup diagnostic
+
+This operator-approved exception is not an inspection retry. The public package
+exports `startupDiagnosticEnabled = false`; only the separately reviewed private
+package may enable it alongside the existing private setup configuration. A
+terminal failed/blocked/uncertain setup fence is required. The diagnostic writes
+`t02_startup_diagnostic_fence` before creating its own tab and uses only
+`t02_startup_diagnostic_document` for ownership. The original inspection fence,
+status, ownership and pending-failure evidence stay intact. No receiver is needed.
+
+Reload the same unpacked extension, open its popup, and click **Diagnose startup
+(no fetch)** once. Report the separate fixed diagnostic message. Do not click the
+normal inspection/probe buttons, clear extension storage, remove/reinstall the
+extension, or reset either attempt. Passed, failed and interrupted diagnostics
+remain non-retryable. The created tab is left for operator cleanup. A passing
+diagnostic does not authorize or enable a session request; any later inspection
+requires a separate reviewed recovery decision.
+
+The separately approved v2 diagnostic addresses a saved
+`page_initialization_failed` result from the first diagnostic. Private package
+configuration selects `startupDiagnosticRevision = 2`; popup messages and stored
+configuration cannot choose a revision. V2 requires that exact prior failed
+diagnostic and the original failed setup fence, then uses new fixed
+`t02_startup_diagnostic_fence_v2` and `t02_startup_diagnostic_document_v2` keys.
+Both earlier attempts remain untouched and locked. The public package remains
+disabled, with revision 1 as its compatibility default. This diagnostic remains
+source-only and is superseded by the current private background setup packaging;
+no v2 run is implied.
+
+The popup labels this action **Diagnose startup v2 (no fetch)**. Its fixed results
+distinguish a rejected Chrome script call, deadline, document change, malformed
+result, absent result, collector command rejection and closed collector. An exact
+context failure remains distinct. A historical generic initialization failure
+cannot be reclassified after the fact. V2 still does no native connection or
+collector HTTP, allows one explicit gesture only, and never unlocks capture.
+See the [stock implementation comparison](design-evidence.md#read-only-stock-implementation-comparison)
+for why Miyo's different credential path was not substituted for this boundary.
+
 ## Remaining A2 gate
 
 The strict session qualification slice does not infer a context ID from a display
@@ -139,18 +207,21 @@ validated Miyo mapping, or completion of T02. A later body proof requires a
 separately scoped private root and the reviewed session/body adapter; a session-only
 root must never be promoted or reset into it.
 
-The operator-approved setup inspection resolves the initial unknown-context
-bootstrap separately. It starts with a unique historical Miyo account candidate
-as the expected principal and `context_id: null`, obtains one permitted session
-response in the page, and can store only the sanitized principal and observed
-context ID. Its fixed personal-account inspection checks the page-local workspace
-selection and token account scope without exporting either. Missing, ambiguous,
-changed or mismatched evidence blocks the attempt. Setup success never enables
-the conversation probe and never promotes its private root into capture state.
-The selected conversation remains pinned but is not requested during setup.
-The client validates the final page handoff before committing setup evidence;
-a changed selection or lost reply stops without retry. This records a snapshot,
-not an atomic cross-process guarantee that the account cannot change afterward.
+The operator-approved background setup inspection resolves the initial
+unknown-context bootstrap separately. It starts with a unique historical Miyo
+account candidate as the expected principal and `context_id: null`, waits for a
+local permit and durable dispatch acknowledgement, then makes exactly one
+bounded session `GET` in the extension background path. It can store only the
+sanitized principal and observed backend context candidate; that context is not
+workspace attestation. The path uses a unique `collector_instance_id`, not a
+page document identity, has no token cache/Cookies API/native credential export,
+and never requests a conversation or body. Missing, ambiguous, changed or
+mismatched evidence blocks the attempt. Setup success never enables the
+conversation probe and never promotes its private root into capture state.
+The receiver ends at `background_setup_complete`, the UI at
+`background_setup_inspection_complete`, and failed/terminal records remain
+preserved. This records a snapshot, not an atomic cross-process guarantee that
+the account cannot change afterward.
 
 Before a live proof:
 
@@ -196,14 +267,15 @@ the selected conversation/profile and current context contract are qualified.
 
 ## Official API basis, not qualification evidence
 
-The setup inspection contract was informed by the selected page's
+The session-check contract was informed by the selected page's
 [public first-party account/session implementation](https://chatgpt.com/cdn/assets/4813494d-kikym8fjz981tn2m.js),
 observed on 2026-09-16. This unsupported web implementation is not a documented
-API guarantee. Its session account structure, principal/account identifiers,
-page-local workspace selection and token scope must agree in the actual setup
-attempt; a changed or missing field stops the attempt. Public source inspection
-does not establish the authenticated response content type, current identity or
-runtime compatibility. No vendor implementation is copied into this repository.
+API guarantee. Its session account structure and principal/account identifiers
+must agree in the actual setup attempt; a changed or missing field stops the
+attempt. The resulting backend context is candidate evidence only and does not
+attest the active workspace. Public source inspection does not establish the
+authenticated response content type, current identity or runtime compatibility.
+No vendor implementation is copied into this repository.
 
 Chrome documents native-endian framing, a caller-origin argument and exact
 `allowed_origins`; the host module applies the stricter application frame cap.

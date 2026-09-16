@@ -156,17 +156,25 @@ export async function runSetupInspection(options = {}) {
   return runQualification(options, 'setup');
 }
 
-async function runQualification({ request, page, browserInstanceId, binding,
+/** Background setup still requires the worker's durable dispatch ACK. */
+export async function runBackgroundSetupInspection(options = {}) {
+  return runQualification(options, 'background-setup');
+}
+
+async function runQualification({ request, page, collector, browserInstanceId, binding,
   conversationId,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   persistFailure, uuid = () => crypto.randomUUID() }, mode) {
-  const sessionOnly = mode === 'session' || mode === 'setup';
-  const setupOnly = mode === 'setup';
-  if (typeof request !== 'function' || typeof page?.call !== 'function'
+  const backgroundSetup = mode === 'background-setup';
+  const sessionOnly = mode === 'session' || mode === 'setup' || backgroundSetup;
+  const setupOnly = mode === 'setup' || backgroundSetup;
+  const source = backgroundSetup ? collector : page;
+  if (typeof request !== 'function' || typeof source?.call !== 'function'
     || typeof persistFailure !== 'function' || typeof wait !== 'function') reject();
   text(browserInstanceId, UUID);
   if (!sessionOnly) text(conversationId, ID);
-  text(page.documentId, ID);
+  if (backgroundSetup) text(source.collectorInstanceId, UUID);
+  else text(source.documentId, ID);
   keys(binding, ['principal_id', 'context_id']);
   text(binding.principal_id, ID);
   if (setupOnly) {
@@ -186,7 +194,8 @@ async function runQualification({ request, page, browserInstanceId, binding,
   const receipts = [];
   try {
     const hello = await send('hello', { extension_version: '0.0.0', browser_instance_id: browserInstanceId,
-      capabilities: sessionOnly ? ['session_check', 'chunking'] : ['session_check', 'body', 'chunking'] });
+      capabilities: backgroundSetup ? ['session_check', 'chunking', 'background_session_check']
+        : sessionOnly ? ['session_check', 'chunking'] : ['session_check', 'body', 'chunking'] });
     keys(hello, ['worker_instance_id', 'protocol_version', 'config_version']);
     text(hello.worker_instance_id, UUID);
     if (hello.protocol_version !== 1 || hello.config_version !== 1) reject();
@@ -215,10 +224,11 @@ async function runQualification({ request, page, browserInstanceId, binding,
       }
       fence.permit_id = permit.permit_id;
       const started = await send('dispatch_started', { browser_instance_id: browserInstanceId,
-        document_id: page.documentId }, fence);
+        ...(backgroundSetup ? { collector_instance_id: source.collectorInstanceId }
+          : { document_id: source.documentId }) }, fence);
       keys(started, ['accepted']);
       if (started.accepted !== true) reject();
-      const result = await page.call({ operation: 'dispatch', permit: {
+      const result = await source.call({ operation: 'dispatch', permit: {
         permit_id: permit.permit_id, request_kind: kind, arguments: permit.arguments, valid_until: permit.valid_until } });
       control(result);
       if (result?.ok === false) {
@@ -239,7 +249,7 @@ async function runQualification({ request, page, browserInstanceId, binding,
       text(result.sha256, SHA);
       let bytes = 0;
       for (let sequence = 0; sequence < result.chunk_count; sequence += 1) {
-        const chunk = await page.call({ operation: 'pull', sequence });
+        const chunk = await source.call({ operation: 'pull', sequence });
         keys(chunk, ['ok', 'sequence', 'decoded_bytes', 'data']);
         if (chunk.ok !== true || chunk.sequence !== sequence) reject();
         integer(chunk.decoded_bytes, 1, Math.min(resultLimit, 184320));
@@ -274,7 +284,7 @@ async function runQualification({ request, page, browserInstanceId, binding,
       }
       if (bytes !== result.raw_bytes) reject();
       if (setupOnly) {
-        const released = await page.call({ operation: 'release' });
+        const released = await source.call({ operation: 'release' });
         keys(released, ['ok']);
         if (released.ok !== true) reject();
       }
@@ -285,12 +295,13 @@ async function runQualification({ request, page, browserInstanceId, binding,
       if (receipt.raw_bytes !== result.raw_bytes || receipt.sha256 !== result.sha256) reject();
       receipts.push(receipt);
       if (!setupOnly) {
-        const released = await page.call({ operation: 'release' });
+        const released = await source.call({ operation: 'release' });
         keys(released, ['ok']);
         if (released.ok !== true) reject();
       }
     }
-    return { state: setupOnly ? 'setup_inspection_complete' : sessionOnly ? 'session_check_complete' : 'probe_complete', receipts };
+    return { state: backgroundSetup ? 'background_setup_inspection_complete'
+      : setupOnly ? 'setup_inspection_complete' : sessionOnly ? 'session_check_complete' : 'probe_complete', receipts };
   } catch (error) {
     // Chrome/fetch/transport exceptions may contain private page or path text.
     if (error instanceof ProbeClientError) throw error;
@@ -298,6 +309,6 @@ async function runQualification({ request, page, browserInstanceId, binding,
   } finally {
     // No tab closing/reconnect/refetch follows an uncertain outcome. Clearing
     // the exact original document is best effort, not proof of draining.
-    try { await page.call({ operation: 'abort' }); } catch { /* retained uncertainty */ }
+    try { await source.call({ operation: 'abort' }); } catch { /* retained uncertainty */ }
   }
 }

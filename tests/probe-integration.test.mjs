@@ -7,7 +7,10 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import vm from 'node:vm';
 import { pageCollector } from '../extension/page-collector.mjs';
-import { createNativeClient, runProbe, runSessionCheck, runSetupInspection } from '../extension/probe-client.mjs';
+import { createBackgroundSetupCollector } from '../extension/background-setup-collector.mjs';
+import {
+  createNativeClient, runBackgroundSetupInspection, runProbe, runSessionCheck, runSetupInspection,
+} from '../extension/probe-client.mjs';
 import { assertReply, assertRequest } from '../src/contracts.mjs';
 import { encodeNativeMessage, NativeFrameDecoder } from '../src/framing.mjs';
 import { runNativeHost } from '../src/native-host.mjs';
@@ -178,3 +181,153 @@ for (const scope of ['conversation', 'session-only', 'setup-inspection']) {
   test(`T02 ${scope} vertical synthetic proof: fixed page -> native frames -> Unix socket -> durable private bytes`,
     (t) => runVerticalProof(t, scope));
 }
+
+async function runBackgroundVerticalProof(t) {
+  const root = temporaryRoot(t);
+  const clock = new FakeClock();
+  const binding = { principal_id: 'synthetic-background-principal', context_id: null };
+  const observedContext = 'synthetic-personal';
+  const collectorInstanceId = '44444444-4444-4444-8444-444444444444';
+  const tokenSentinel = 'SYNTHETIC_BACKGROUND_TOKEN';
+  const emailSentinel = 'synthetic-background@example.invalid';
+  const cookieSentinel = 'SYNTHETIC_BACKGROUND_COOKIE';
+  let dispatchAcked = false;
+  const jwtPayload = Buffer.from(JSON.stringify({
+    exp: Math.floor(clock.wall / 1000) + 3600,
+    'https://api.openai.com/auth': { chatgpt_account_id: observedContext },
+    tokenSentinel,
+  })).toString('base64url');
+  const accessToken = `header.${jwtPayload}.signature`;
+  const calls = [];
+  const wire = [];
+  const responseBytes = Buffer.from(JSON.stringify({
+    user: { id: binding.principal_id, email: emailSentinel },
+    account: { id: observedContext, structure: 'personal' },
+    accessToken,
+    cookie: cookieSentinel,
+  }));
+  const fetchImpl = async (url, options) => {
+    assert.equal(dispatchAcked, true,
+      'authenticated fetch must follow the durable dispatch ACK');
+    calls.push({ url, method: options.method });
+    assert.equal(url, 'https://chatgpt.com/api/auth/session');
+    assert.equal(options.method, 'GET');
+    assert.equal(options.credentials, 'include');
+    let offset = 0;
+    return {
+      status: 200,
+      headers: { get: (name) => name.toLowerCase() === 'content-type' ? 'application/json' : null },
+      body: { getReader: () => ({
+        async read() {
+          if (offset === responseBytes.length) return { done: true };
+          const chunk = responseBytes.subarray(offset, Math.min(offset + 17, responseBytes.length));
+          offset += chunk.length;
+          return { done: false, value: chunk };
+        },
+        async cancel() {},
+      }) },
+    };
+  };
+  const collector = createBackgroundSetupCollector({ binding, fetchImpl,
+    uuid: () => collectorInstanceId, wallNow: () => clock.wall });
+  const receiver = createProbeReceiver({ root, trustedBoundary: root,
+    binding: { binding_id: 'synthetic-background-binding', ...binding, account_id: binding.principal_id },
+    conversationId: 'synthetic-background-conversation', clock,
+    scope: 'background-setup-inspection', ownership: () => true });
+  t.after(() => receiver.close());
+  const socketRoot = mkdtempSync(join(tmpdir(), 'miyo-t02-background-vertical-'));
+  let socketServer;
+  let closeHost = async () => {};
+  t.after(async () => {
+    try { await closeHost(); } finally {
+      try { await socketServer?.close(); } finally { rmSync(socketRoot, { recursive: true, force: true }); }
+    }
+  });
+  const socketPath = join(socketRoot, 'probe.sock');
+  socketServer = await createProbeSocketServer({ socketPath, privateRoot: socketRoot,
+    trustedBoundary: socketRoot, ownership: () => true, receiver });
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let expectedOperation;
+  let disconnected = false;
+  const port = { onMessage: event(), onDisconnect: event(),
+    postMessage(message) {
+      expectedOperation = message.operation;
+      wire.push(JSON.stringify(message));
+      const frame = encodeNativeMessage(message, assertRequest);
+      input.write(frame.subarray(0, 3));
+      input.write(frame.subarray(3));
+    },
+    disconnect() {
+      if (disconnected) return;
+      disconnected = true;
+      input.end();
+      this.onDisconnect.emit();
+    },
+  };
+  const client = createNativeClient({ runtime: { connectNative(name) {
+    assert.equal(name, 'local.miyo_chatgpt_catchup'); return port;
+  } } });
+  const extensionId = 'b'.repeat(32);
+  const host = runNativeHost({ input, output, extensionId, origin: `chrome-extension://${extensionId}/`,
+    connectWorker: () => connectProbeSocket({ socketPath, trustedBoundary: socketRoot }) });
+  const decoder = new NativeFrameDecoder((reply) => {
+    assertReply(reply, expectedOperation);
+    if (expectedOperation === 'dispatch_started' && reply.ok === true) dispatchAcked = true;
+  });
+  const replies = (async () => {
+    for await (const chunk of output) await decoder.consume(chunk, (reply) => port.onMessage.emit(reply));
+    decoder.finish();
+  })();
+  closeHost = async () => { client.close(); await host; output.end(); await replies; };
+  const result = await runBackgroundSetupInspection({
+    request: (message) => client.request(message), collector,
+    browserInstanceId: randomUUID(),
+    binding,
+    wait: async (ms) => clock.advance(ms),
+    persistFailure: async () => assert.fail('unexpected failure receipt'),
+  });
+  assert.equal(result.state, 'background_setup_inspection_complete');
+  assert.equal(result.receipts.length, 1);
+  assert.deepEqual(calls, [{ url: 'https://chatgpt.com/api/auth/session', method: 'GET' }]);
+  const receipt = result.receipts[0];
+  const sanitized = Buffer.from(JSON.stringify({ principal_id: binding.principal_id, context_id: observedContext }));
+  assert.equal(receipt.sha256, createHash('sha256').update(sanitized).digest('hex'));
+  assert.equal(receipt.raw_bytes, sanitized.length);
+  assert.deepEqual(readFileSync(join(root, 'artifacts', `${receipt.artifact_id}.json`)), sanitized);
+  const snapshot = receiver.snapshot();
+  assert.equal(snapshot.background_setup_complete, true);
+  assert.equal(snapshot.setup_complete, false);
+  assert.equal(snapshot.probe_complete, false);
+  assert.equal(snapshot.attested, false);
+  const stateBytes = readFileSync(join(root, 'probe-state.db'));
+  for (const sentinel of [tokenSentinel, emailSentinel, cookieSentinel]) {
+    assert.equal(stateBytes.includes(Buffer.from(sentinel)), false, `state contains ${sentinel}`);
+  }
+  for (const serialized of wire) {
+    assert.ok(Buffer.byteLength(serialized) <= 262144);
+    assert.ok(!serialized.includes(tokenSentinel));
+    assert.ok(!serialized.includes(emailSentinel));
+    assert.ok(!serialized.includes(cookieSentinel));
+    assert.ok(!serialized.includes('document_id'));
+    assert.ok(serialized.includes(collectorInstanceId) || !serialized.includes('dispatch_started'));
+  }
+  const artifactBytes = readFileSync(join(root, 'artifacts', `${receipt.artifact_id}.json`));
+  for (const sentinel of [tokenSentinel, emailSentinel, cookieSentinel]) {
+    assert.equal(artifactBytes.includes(Buffer.from(sentinel)), false, `artifact contains ${sentinel}`);
+  }
+  await collector.call({ operation: 'abort' });
+  await closeHost();
+  receiver.close();
+  const reopened = createProbeReceiver({ root, trustedBoundary: root,
+    binding: { binding_id: 'synthetic-background-binding', ...binding, account_id: binding.principal_id },
+    conversationId: 'synthetic-background-conversation', clock,
+    scope: 'background-setup-inspection', ownership: () => true });
+  t.after(() => reopened.close());
+  assert.equal(reopened.snapshot().background_setup_complete, true);
+  assert.equal(reopened.snapshot().attested, false);
+  assert.equal(reopened.snapshot().probe_complete, false);
+}
+
+test('T02 background setup synthetic vertical proof: collector -> native frames -> Unix socket -> durable private bytes',
+  (t) => runBackgroundVerticalProof(t));

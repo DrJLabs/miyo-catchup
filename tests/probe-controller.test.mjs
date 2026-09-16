@@ -55,6 +55,90 @@ function pageFactory(calls, { documentId = 'owned-document' } = {}) {
   };
 }
 
+test('a startup rejection stays blocked across popup and controller restart without retry', async () => {
+  const storage = store();
+  let opened = 0;
+  const options = { storage, config: setupConfig, reviewedAdapters: setupAdapters,
+    openPage: async () => { opened += 1; throw new ProbeClientError('qualification_required'); },
+    makeNativeClient: () => assert.fail('must not connect') };
+  const first = await createProbeController(options).inspectSession({ userGesture: true });
+  assert.equal(first.state, 'blocked');
+  const before = structuredClone(storage.state);
+  const restarted = createProbeController(options);
+  const status = await restarted.status();
+  assert.equal(status.state, 'blocked');
+  assert.equal(status.reason_code, 'qualification_required');
+  assert.equal(status.can_inspect, false);
+  const retry = await restarted.inspectSession({ userGesture: true });
+  assert.equal(retry.state, 'blocked');
+  assert.equal(opened, 1);
+  assert.deepEqual(storage.state, before);
+});
+
+test('old blocked attempts expose only a coarse saved startup milestone', async () => {
+  for (const [fields, expected] of [
+    [{}, 'legacy_before_tab_recorded'],
+    [{ tab_id: 7 }, 'legacy_before_document_binding'],
+    [{ tab_id: 7, document_id: 'synthetic-document' }, 'legacy_after_document_binding'],
+  ]) {
+    const storage = store({
+      [FENCE_KEY]: { schema_version: 1, state: 'blocked', reason_code: 'qualification_required' },
+      t02_owned_document: { browser_instance_id: browserInstanceId,
+        marker: '00000000-0000-4000-8000-000000000020', state: 'ownership_uncertain',
+        ...fields, error: 'PRIVATE_ERROR_SENTINEL' },
+    });
+    const before = structuredClone(storage.state);
+    const controller = createProbeController({ storage, config: setupConfig, reviewedAdapters: setupAdapters,
+      openPage: () => assert.fail('must not open'), makeNativeClient: () => assert.fail('must not connect') });
+    const status = await controller.status();
+    assert.equal(status.diagnostic_code, expected);
+    assert.equal(status.can_inspect, false);
+    assert.equal(status.can_start, false);
+    assert.doesNotMatch(JSON.stringify(status), /PRIVATE|synthetic-document|00000000/);
+    assert.deepEqual(storage.state, before);
+  }
+});
+
+test('startup diagnostic codes are bounded and never reset a terminal fence', async () => {
+  for (const code of ['page_tab_failed', 'page_load_failed', 'page_binding_failed',
+    'page_initialization_failed', 'page_context_unavailable', 'page_storage_failed']) {
+    const storage = store();
+    let opened = 0;
+    const options = { storage, config: setupConfig, reviewedAdapters: setupAdapters,
+      openPage: async () => { opened += 1; throw new ProbeClientError(code); },
+      makeNativeClient: () => assert.fail('must not connect') };
+    const first = await createProbeController(options).inspectSession({ userGesture: true });
+    assert.equal(first.state, 'blocked');
+    assert.equal(first.reason_code, code);
+    const restarted = createProbeController(options);
+    const status = await restarted.status();
+    assert.equal(status.reason_code, code);
+    assert.equal(status.state, 'blocked');
+    assert.equal((await restarted.inspectSession({ userGesture: true })).can_inspect, false);
+    assert.equal(opened, 1);
+  }
+});
+
+test('foreign or malformed legacy records cannot supply popup diagnostics', async () => {
+  for (const record of [
+    { browser_instance_id: '00000000-0000-4000-8000-000000000099' },
+    { startup_failure_code: 'PRIVATE_ERROR_SENTINEL' },
+    { document_id: 'PRIVATE_ERROR_SENTINEL/unsafe' },
+  ]) {
+    const storage = store({
+      [FENCE_KEY]: { schema_version: 1, state: 'blocked', reason_code: 'qualification_required' },
+      t02_owned_document: { browser_instance_id: browserInstanceId,
+        marker: '00000000-0000-4000-8000-000000000020', state: 'ownership_uncertain', tab_id: 7, ...record },
+    });
+    const controller = createProbeController({ storage, config: setupConfig, reviewedAdapters: setupAdapters });
+    const status = await controller.status();
+    assert.equal(status.state, 'blocked');
+    assert.equal(status.diagnostic_code, undefined);
+    assert.equal(status.can_inspect, false);
+    assert.doesNotMatch(JSON.stringify(status), /PRIVATE|00000000/);
+  }
+});
+
 test('no startup work occurs until an explicit user gesture', async () => {
   const storage = store({ [CONFIG_KEY]: config });
   const calls = [];

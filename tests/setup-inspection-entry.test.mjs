@@ -75,6 +75,11 @@ test('setup configuration is exact, private and separately pins native host conf
   assert.deepEqual(config.binding, binding);
   assert.equal(config.conversation_id, 'selected-conversation');
 
+  writeFileSync(fixture.setupPath, JSON.stringify({ version: 1, native_host_config: fixture.nativePath,
+    root: fixture.staging, binding, conversation_id: 'selected-conversation',
+    execution_context: 'extension-background' }), { mode: 0o600 });
+  assert.equal(readSetupInspectionConfiguration(fixture.setupPath, { trustedBoundary: fixture.root }).execution_context, 'extension-background');
+
   writeFileSync(fixture.setupPath, JSON.stringify({ ...config, socket_path: undefined }), { mode: 0o600 });
   assert.throws(() => readSetupInspectionConfiguration(fixture.setupPath, { trustedBoundary: fixture.root }), { message: 'invalid_setup_configuration' });
 });

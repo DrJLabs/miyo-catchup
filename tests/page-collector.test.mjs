@@ -121,6 +121,10 @@ function setupInitialize() {
   };
 }
 
+function startupSetupInitialize(value = true) {
+  return { ...setupInitialize(), startup_only: value };
+}
+
 function permit(kind, id, args = {}) {
   return {
     operation: 'dispatch',
@@ -208,6 +212,47 @@ test('setup inspection is ChatGPT-only, personal-only, sanitized, and never admi
   assert.equal(calls[0].url, '/api/auth/session');
   assert.equal(calls[0].options.method, 'GET');
   assert.equal(calls[0].options.credentials, 'same-origin');
+});
+
+test('startup-only setup initialization is sticky and permanently refuses dispatch without fetching', async () => {
+  let calls = 0;
+  const realm = makeRealm(async () => { calls += 1; return setupSessionResponse(); }, setTimeout,
+    { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  assert.deepEqual(await realm.call(startupSetupInitialize()), { ok: true });
+  assert.deepEqual(await realm.call(permit('session_check', randomUUID())),
+    { ok: false, error: { failure_class: 'schema_changed' } });
+  assert.equal(calls, 0);
+  assert.deepEqual(await realm.call(permit('body', randomUUID(), { conversation_ids: [CONVERSATION] })),
+    { ok: false, error: { failure_class: 'schema_changed' } });
+  assert.equal(calls, 0);
+  assert.deepEqual(await realm.call({ operation: 'abort' }), { ok: true });
+});
+
+test('startup-only initialization accepts only true on the setup adapter and rejects it for synthetic pages', async () => {
+  for (const startupOnly of [false, null, 'true']) {
+    const realm = makeRealm(async () => setupSessionResponse(), setTimeout,
+      { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+    assert.deepEqual(await realm.call(startupSetupInitialize(startupOnly)),
+      { ok: false, error: { failure_class: 'schema_changed' } });
+  }
+  const synthetic = makeRealm(async () => sessionResponse());
+  assert.deepEqual(await synthetic.call({ ...initialize(), startup_only: true }),
+    { ok: false, error: { failure_class: 'schema_changed' } });
+  const extra = makeRealm(async () => setupSessionResponse(), setTimeout,
+    { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  assert.deepEqual(await extra.call({ ...startupSetupInitialize(), extra: true }),
+    { ok: false, error: { failure_class: 'schema_changed' } });
+});
+
+test('startup-only context rejection is sticky and does not fetch or promote later', async () => {
+  let calls = 0;
+  const realm = makeRealm(async () => { calls += 1; return setupSessionResponse(); }, setTimeout,
+    { origin: 'https://chatgpt.com', cookie: undefined });
+  assert.deepEqual(await realm.call(startupSetupInitialize()),
+    { ok: false, error: { failure_class: 'identity_mismatch' } });
+  assert.deepEqual(await realm.call(permit('session_check', randomUUID())),
+    { ok: false, error: { failure_class: 'schema_changed' } });
+  assert.equal(calls, 0);
 });
 
 test('setup inspection rejects origin, body attempts, wrong principal, nonpersonal and malformed JWT before exposure', async () => {

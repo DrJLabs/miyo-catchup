@@ -92,7 +92,8 @@
                   "session_check",
                   "catalog",
                   "body",
-                  "chunking"
+                  "chunking",
+                  "background_session_check"
                 ]
               },
               "uniqueItems": true,
@@ -379,22 +380,26 @@
           "const": "dispatch_started"
         },
         "payload": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "browser_instance_id",
-            "document_id"
-          ],
-          "properties": {
-            "browser_instance_id": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["browser_instance_id", "document_id"],
+              "properties": {
+                "browser_instance_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+                "document_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
+              }
             },
-            "document_id": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["browser_instance_id", "collector_instance_id"],
+              "properties": {
+                "browser_instance_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+                "collector_instance_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}
+              }
             }
-          }
+          ]
         },
         "run_id": {
           "type": "string",
@@ -650,30 +655,28 @@
           "const": "reconcile_dispatch"
         },
         "payload": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "browser_instance_id",
-            "document_id",
-            "outcome"
-          ],
-          "properties": {
-            "browser_instance_id": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["browser_instance_id", "document_id", "outcome"],
+              "properties": {
+                "browser_instance_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+                "document_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+                "outcome": {"enum": ["settled", "aborted", "destroyed_context"]}
+              }
             },
-            "document_id": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
-            },
-            "outcome": {
-              "enum": [
-                "settled",
-                "aborted",
-                "destroyed_context"
-              ]
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["browser_instance_id", "collector_instance_id", "outcome"],
+              "properties": {
+                "browser_instance_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+                "collector_instance_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+                "outcome": {"enum": ["settled", "aborted", "destroyed_context"]}
+              }
             }
-          }
+          ]
         },
         "run_id": {
           "type": "string",

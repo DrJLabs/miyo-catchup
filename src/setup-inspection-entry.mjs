@@ -73,8 +73,9 @@ export function readSetupInspectionConfiguration(path, { trustedBoundary } = {})
   if (typeof path !== 'string' || path.length === 0) throw new Error('invalid_setup_configuration');
   const config = readPrivateJson(path, { trustedBoundary });
   if (config === null || typeof config !== 'object' || Array.isArray(config)
-    || Object.keys(config).sort().join(',')
-      !== 'binding,conversation_id,native_host_config,root,version'
+    || !['binding,conversation_id,native_host_config,root,version',
+      'binding,conversation_id,execution_context,native_host_config,root,version']
+      .includes(Object.keys(config).sort().join(','))
     || config.version !== 1 || typeof config.native_host_config !== 'string'
     || typeof config.root !== 'string' || typeof config.conversation_id !== 'string'
     || config.binding === null || typeof config.binding !== 'object'
@@ -82,7 +83,8 @@ export function readSetupInspectionConfiguration(path, { trustedBoundary } = {})
     || Object.keys(config.binding).sort().join(',')
       !== 'account_id,binding_id,context_id,principal_id'
     || config.binding.context_id !== null
-    || config.binding.account_id !== config.binding.principal_id) {
+    || config.binding.account_id !== config.binding.principal_id
+    || (config.execution_context !== undefined && config.execution_context !== 'extension-background')) {
     throw new Error('invalid_setup_configuration');
   }
   const nativePath = normalizeAbsolutePath(config.native_host_config, 'native host configuration');
@@ -114,7 +116,8 @@ export async function runSetupInspectionOwner({
   const receiverFactory = createReceiver ?? (async ({ configuration, ownership }) => {
     const { createProbeReceiver } = await import('./probe-receiver.mjs');
     return createProbeReceiver({
-      scope: 'setup-inspection',
+      scope: configuration.execution_context === 'extension-background'
+        ? 'background-setup-inspection' : 'setup-inspection',
       root: configuration.root,
       trustedBoundary,
       binding: configuration.binding,

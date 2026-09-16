@@ -32,6 +32,17 @@ is T02/T03 work. Subsequent work/permit messages require the relevant fence.
 Manual idempotency keys are UUIDs; daily keys name binding, timezone and local
 due date, which the future coordinator must compare to its configured binding.
 
+The private background setup path uses the existing version-1 permit, dispatch,
+chunk and commit envelopes. It issues one session `GET` only after the permit
+and durable dispatch acknowledgement, identifies the source with a unique
+`collector_instance_id` (not a page `document_id`), and transfers only the
+sanitized principal/context outcome. No token or cookie material is a schema
+field or native export. The resulting context is candidate evidence, not
+workspace attestation; receiver completion is `background_setup_complete` and
+the popup's corresponding terminal state is
+`background_setup_inspection_complete`. The public configuration leaves this
+path disabled.
+
 `request_failed.retry_after` carries a bounded header, including malformed
 values. T03 must parse seconds/dates and persist the conservative cooldown floor
 on invalid or missing input; rejecting the whole failure report could otherwise

@@ -131,7 +131,7 @@ function validatePayload(errors, value, operation) {
       if (!object(errors, p, payloadPath, new Set(['extension_version', 'browser_instance_id', 'capabilities']), ['extension_version', 'browser_instance_id', 'capabilities'])) return;
       version(errors, p.extension_version, `${payloadPath}.extension_version`); uuid(errors, p.browser_instance_id, `${payloadPath}.browser_instance_id`);
       if (!Array.isArray(p.capabilities) || p.capabilities.length > 16 || new Set(p.capabilities).size !== p.capabilities.length) fail(errors, `${payloadPath}.capabilities`, 'must be a unique bounded array');
-      else p.capabilities.forEach((x, i) => enumValue(errors, x, `${payloadPath}.capabilities[${i}]`, ['session_check', 'catalog', 'body', 'chunking']));
+      else p.capabilities.forEach((x, i) => enumValue(errors, x, `${payloadPath}.capabilities[${i}]`, ['session_check', 'catalog', 'body', 'chunking', 'background_session_check']));
       break;
     }
     case 'request_run':
@@ -157,8 +157,17 @@ function validatePayload(errors, value, operation) {
       } break;
     case 'request_permit':
       if (object(errors, p, payloadPath, new Set(['work_unit_id']), ['work_unit_id'])) id(errors, p.work_unit_id, `${payloadPath}.work_unit_id`); break;
-    case 'dispatch_started':
-      if (object(errors, p, payloadPath, new Set(['browser_instance_id', 'document_id']), ['browser_instance_id', 'document_id'])) { uuid(errors, p.browser_instance_id, `${payloadPath}.browser_instance_id`); id(errors, p.document_id, `${payloadPath}.document_id`); } break;
+    case 'dispatch_started': {
+      if (object(errors, p, payloadPath, new Set(['browser_instance_id', 'document_id', 'collector_instance_id']), ['browser_instance_id'])) {
+        uuid(errors, p.browser_instance_id, `${payloadPath}.browser_instance_id`);
+        const hasDocument = Object.hasOwn(p, 'document_id');
+        const hasCollector = Object.hasOwn(p, 'collector_instance_id');
+        if (hasDocument === hasCollector) fail(errors, payloadPath, 'must contain exactly one dispatch identity');
+        if (hasDocument) id(errors, p.document_id, `${payloadPath}.document_id`);
+        if (hasCollector) uuid(errors, p.collector_instance_id, `${payloadPath}.collector_instance_id`);
+      }
+      break;
+    }
     case 'result_chunk': {
       if (!object(errors, p, payloadPath, new Set(['sequence', 'decoded_bytes', 'data']), ['sequence', 'decoded_bytes', 'data'])) break;
       finiteInteger(errors, p.sequence, `${payloadPath}.sequence`); finiteInteger(errors, p.decoded_bytes, `${payloadPath}.decoded_bytes`, 0, MAX_RAW_CHUNK_BYTES);
@@ -177,7 +186,15 @@ function validatePayload(errors, value, operation) {
         if (p.retry_after !== undefined && (typeof p.retry_after !== 'string' || p.retry_after.length > 128)) fail(errors, `${payloadPath}.retry_after`, 'must be a bounded Retry-After header');
       } break;
     case 'reconcile_dispatch':
-      if (object(errors, p, payloadPath, new Set(['browser_instance_id', 'document_id', 'outcome']), ['browser_instance_id', 'document_id', 'outcome'])) { uuid(errors, p.browser_instance_id, `${payloadPath}.browser_instance_id`); id(errors, p.document_id, `${payloadPath}.document_id`); enumValue(errors, p.outcome, `${payloadPath}.outcome`, ['settled', 'aborted', 'destroyed_context']); } break;
+      if (object(errors, p, payloadPath, new Set(['browser_instance_id', 'document_id', 'collector_instance_id', 'outcome']), ['browser_instance_id', 'outcome'])) {
+        uuid(errors, p.browser_instance_id, `${payloadPath}.browser_instance_id`);
+        const hasDocument = Object.hasOwn(p, 'document_id');
+        const hasCollector = Object.hasOwn(p, 'collector_instance_id');
+        if (hasDocument === hasCollector) fail(errors, payloadPath, 'must contain exactly one dispatch identity');
+        if (hasDocument) id(errors, p.document_id, `${payloadPath}.document_id`);
+        if (hasCollector) uuid(errors, p.collector_instance_id, `${payloadPath}.collector_instance_id`);
+        enumValue(errors, p.outcome, `${payloadPath}.outcome`, ['settled', 'aborted', 'destroyed_context']);
+      } break;
     case 'pause': case 'resume': case 'verify': emptyObject(errors, p, payloadPath); break;
     default: fail(errors, '$.operation', 'unknown operation');
   }

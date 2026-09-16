@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createNativeClient, runProbe, runSessionCheck, runSetupInspection } from '../extension/probe-client.mjs';
+import { createNativeClient, runProbe, runSessionCheck, runSetupInspection,
+  runBackgroundSetupInspection } from '../extension/probe-client.mjs';
 import { assertReply, assertRequest, MAX_RAW_CHUNK_BYTES } from '../src/contracts.mjs';
 
 const binding = { principal_id: 'synthetic-user', context_id: 'synthetic-personal' };
@@ -152,6 +153,56 @@ test('setup inspection accepts a discovered context and never requests body work
   assert.equal(fixture.messages.filter((message) => message.operation === 'request_permit').length, 1);
   assert.deepEqual(fixture.pageCalls, ['dispatch', 'pull', 'release', 'abort']);
   assert.equal(fixture.waits.length, 0);
+});
+
+function backgroundFixture(overrides = {}) {
+  const fixture = syntheticProbe({ setup: true, ...overrides });
+  fixture.options.collector = { collectorInstanceId: randomUUID(), call: fixture.options.page.call };
+  delete fixture.options.page;
+  return fixture;
+}
+
+test('background setup uses a distinct capability and collector identity with one permit', async () => {
+  const fixture = backgroundFixture();
+  const result = await runBackgroundSetupInspection(fixture.options);
+  assert.equal(result.state, 'background_setup_inspection_complete');
+  assert.equal(result.receipts.length, 1);
+  assert.deepEqual(fixture.messages[0].payload.capabilities,
+    ['session_check', 'chunking', 'background_session_check']);
+  assert.deepEqual(fixture.messages.find((message) => message.operation === 'dispatch_started').payload,
+    { browser_instance_id: browserInstanceId, collector_instance_id: fixture.options.collector.collectorInstanceId });
+  assert.deepEqual(fixture.pageCalls, ['dispatch', 'pull', 'release', 'abort']);
+  assert.equal(fixture.messages.filter((message) => message.operation === 'request_permit').length, 1);
+  assert.deepEqual(fixture.waits, []);
+});
+
+test('background setup never dispatches after a lost dispatch ACK and never retries a lost commit', async () => {
+  for (const lostOperation of ['dispatch_started', 'commit_result']) {
+    const fixture = backgroundFixture();
+    const request = fixture.options.request;
+    fixture.options.request = async (message) => {
+      const reply = await request(message);
+      if (message.operation === lostOperation) throw new Error('private-transport-sentinel');
+      return reply;
+    };
+    await assert.rejects(runBackgroundSetupInspection(fixture.options), { code: 'dispatch_uncertain' });
+    assert.equal(fixture.pageCalls.filter((operation) => operation === 'dispatch').length,
+      lostOperation === 'dispatch_started' ? 0 : 1);
+    assert.equal(fixture.messages.filter((message) => message.operation === 'request_permit').length, 1);
+    assert.equal(fixture.pageCalls.at(-1), 'abort');
+    assert.doesNotMatch(JSON.stringify(fixture.messages), /private-transport-sentinel/);
+  }
+});
+
+test('background setup does not accept a page identity or forward credential-shaped chunks', async () => {
+  const invalid = backgroundFixture();
+  delete invalid.options.collector.collectorInstanceId;
+  invalid.options.collector.documentId = 'synthetic-document';
+  await assert.rejects(runBackgroundSetupInspection(invalid.options), { code: 'invalid_probe_message' });
+  assert.deepEqual(invalid.messages, []);
+  const poisoned = backgroundFixture({ poison: true });
+  await assert.rejects(runBackgroundSetupInspection(poisoned.options), { code: 'invalid_probe_message' });
+  assert.equal(poisoned.messages.filter((message) => message.operation === 'result_chunk').length, 0);
 });
 
 test('setup inspection does not commit after final page release loses context', async () => {

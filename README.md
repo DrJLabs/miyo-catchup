@@ -7,13 +7,17 @@ ChatGPT sync left disconnected.
 private-path validation and SQLite/process-ownership qualification are
 implemented and tested. T02 adds an MV3 qualification package,
 native-host entry point and private-socket/staging modules, not a live-qualified
-extension or service. Real ChatGPT body capture remains fail-closed; a separately
-approved one-shot setup inspection can establish sanitized identity evidence.
-Loading the private handoff package is operator-confirmed,
-not a completed browser proof. A private status-only native host/foreground
-endpoint is prepared; an operator screenshot confirms the Chrome-to-native
-local-status check passed with capture disabled. Authenticated capture remains
-pending. No Miyo data change has been performed.
+body-capture extension or service. Real ChatGPT body capture remains fail-closed; a separately
+approved private-constructor background setup inspection can make one bounded,
+authenticated session request and establish sanitized identity evidence. It does
+not fetch a conversation or attest a workspace. The public package leaves this
+path disabled.
+The private handoff package has now completed one live background session
+inspection: its identity-only artifact and durable native commit receipt were
+verified, with one session permit and no body permit. This qualifies that setup
+path, not conversation capture or visible-workspace binding. The foreground
+receiver was stopped afterward. Authenticated body capture remains pending.
+No Miyo data change has been performed.
 See the [T02 qualification boundary](docs/t02-qualification.md).
 
 This is an independent integration project, not an official Miyo or OpenAI product.
@@ -26,6 +30,17 @@ This is an independent integration project, not an official Miyo or OpenAI produ
 - Miyo's existing watcher owns native indexing; the worker verifies the result.
 - A user-level timer eventually requests daily work. Closed-browser work waits
   for that browser to return; it does not launch an alternate profile.
+
+The separately approved **Inspect session in extension** action is a private,
+one-shot setup path. After a local permit and dispatch acknowledgement it makes
+exactly one session `GET`, retains only short-lived credential material in
+extension memory, and transfers bounded sanitized evidence. It has no token
+cache, Cookies API access, native credential export or conversation/body fetch.
+Its observed backend context is a candidate value for later qualification, not
+workspace attestation. The receiver ends at
+`background_setup_complete`; the popup reports
+`background_setup_inspection_complete`. Failed records remain terminal and are
+preserved for review.
 
 This does not bypass ChatGPT rate limits. The private web endpoints and native
 Miyo adapter require explicit compatibility qualification.

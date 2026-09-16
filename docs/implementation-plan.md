@@ -29,6 +29,24 @@ This specification separates binding outcomes and invariants, settled technical 
 
 A later request can authorize several levels together explicitly. Do not repeatedly ask for actions already covered. A missing schedule choice does not block A1. The operator is the approval owner; the implementing agent owns routine design, tests, and evidence within its authorization.
 
+**Approved background-setup amendment (2026-09-16):** after comparing the
+installed stock extension and Desktop, the operator authorized relaxing
+page-only credential isolation where safe. This permits one separately scoped
+`background-setup-inspection`, not stock cookie synchronization. Its fixed HTTPS
+session request runs in the trusted extension worker with browser-managed
+credentials and the existing host permission. Raw authentication responses and
+tokens may exist only in short-lived worker memory: no token cache, cookies API,
+native credential export, popup/log output or credential persistence. Native
+durable leases, permits, dispatch acknowledgements and cooldowns remain required.
+The background instance has a fresh `collector_instance_id`, never a fabricated
+Chrome `document_id`, and a new private staging scope/root and extension fence.
+Both prior failed page attempts remain preserved. Sanitized principal/personal
+backend-context evidence is only a point-in-time candidate, not an attestation
+of the visible page's workspace selection. No body work or scope promotion is
+enabled; subsequent body qualification still needs a reviewed context-binding
+contract. This narrow amendment supersedes page-only wording for this scope
+alone and does not authorize stock sync, publication, services or scheduling.
+
 ## 1. Verified baseline, evidence limits, and changes from v1
 
 ### 1.1 Evidence baseline and public scope
@@ -80,7 +98,7 @@ Success is a **verified run scoped to its catalog observation interval**, not an
 | ID | Requirement |
 |---|---|
 | R01 | Use the existing signed-in Chrome profile; keep native Miyo ChatGPT sync disconnected and leave stock Miyo Capture unchanged. |
-| R02 | Keep tokens/cookies/authentication responses in the browser page context; never persist or forward them. Bind capture and publication to one explicitly paired principal/context. |
+| R02 | Keep tokens/cookies/authentication responses in the browser page context or the explicitly approved background-setup worker's short-lived memory; never cache, persist or forward credentials to native/popup/logs. Bind capture and publication to one explicitly paired principal/context. |
 | R03 | Complete and checkpoint the full qualified catalog without chronological shortcuts; state coverage limits honestly. |
 | R04 | Select new, newer or missing-body items without downgrading known versions; preserve unchanged files and local records absent remotely. |
 | R05 | Enforce one worker, one active account job, fenced browser work, bounded requests and durable cooldowns across every trigger/restart. |
@@ -104,7 +122,7 @@ No hard real-time download promise when the browser, user manager, network, or M
 
 ### 2.4 Safety invariants
 
-- I01: no cookie/token/auth-response bytes cross the page boundary or enter logs/fixtures/artifacts.
+- I01: no cookie/token/auth-response bytes cross the approved browser execution boundary or enter logs/fixtures/artifacts. Background setup may use extension-worker memory only; page scopes retain their original page boundary.
 - I02: at most one current worker owns writes and request accounting; clients cannot choose alternate accounts or bypass permits.
 - I03: incomplete catalog, missing selected bodies, unresolved journal entries or failed verification cannot produce `verified`.
 - I04: no custom index dispatch and no custom writes to `files`, `folder_files`, Qdrant, or `chat_sync.json`.
@@ -632,7 +650,7 @@ Use requirement IDs in tests/receipts where useful. The following ACs are bindin
 
 | AC | Requirements | Scenario and objective pass condition | Test/evidence owner |
 |---|---|---|---|
-| AC01 | R01, R02, R14 | Separate extension fetches one approved body with native sync off; token/cookie/auth-response sentinels never appear outside page context; forbidden native sync/import endpoints are unreachable from custom paths | `browser-contract.test.mjs`; T02/T07 live receipts |
+| AC01 | R01, R02, R14 | Separate extension fetches one approved body with native sync off; credential sentinels never cross the approved browser execution boundary (page for body scopes, short-lived worker memory for background setup); forbidden native sync/import endpoints are unreachable from custom paths | `browser-contract.test.mjs`; background collector/integration tests; T02/T07 live receipts |
 | AC02 | R02, R07, R11 | Wrong principal, changed collection context, unknown protocol, blank/foreign manifest account all block before catalog/publication; existing row remains byte-for-byte logically unchanged | `identity.test.mjs`; T01/T02/T05 |
 | AC03 | R03, R11 | Unordered/duplicate pages retain the newest version; empty nonterminal page continues; cycle/malformed/expired cursor and partial scan cannot produce a complete checkpoint; bounded restart does not mix generations | `catalog.test.mjs`; T04 |
 | AC04 | R04, R07 | Frozen unchanged repeat makes zero body requests and preserves every live file's bytes/inode/mtime; missing-body recovery never downgrades a newer local version; absent remote rows are kept | `selection.test.mjs`; T04/T09 |
@@ -991,6 +1009,163 @@ The next operator step is to reload the existing extension and confirm readiness
 only then start the bounded foreground receiver and request the explicit
 **Inspect signed-in session** gesture. No authenticated request, Miyo write,
 service/timer activation or push occurred during this setup preparation.
+
+**T02 startup diagnostic correction:** after the setup package was committed as
+`8b23901`, the operator ran the explicit inspection. It created the expected
+qualification tab but the reopened popup reported uncertainty. The tab visibly
+showed the signed-in personal-account home page; this is not backend identity
+attestation. Read-only receiver evidence remained at `new` with zero accepted
+requests, permits, receipts, chunks or artifacts. No collector-issued session or
+body request was dispatched; ordinary traffic from loading ChatGPT is outside
+that statement. The foreground receiver was stopped cleanly and its socket was
+removed. The browser attempt and private staging evidence were preserved.
+
+Offline reproduction found a concrete reporting defect: a startup rejection was
+persisted as a `blocked` fence, but the reader rejected that state and reported
+`uncertain` on reopen. The fix preserves `blocked` as terminal and retains fixed
+startup failure codes without raw errors. Older matching ownership records can
+show only the last recorded milestone; the original browser failure remains
+unidentified because the previous build discarded it. Status inspection is
+read-only and cannot reset the fence, adopt a tab or dispatch a request. No
+permissions, identity checks, retry rules or capture gates were relaxed.
+
+Validation: all 209 offline tests pass, including blocked-fence restart behavior,
+phase-specific failures, sentinel exclusion, legacy milestone redaction and no
+retry effects. Repository checks, whitespace checks and the changed-source secret
+scan pass; focused independent review found no remaining issue in this fix.
+The same private extension directory now contains the diagnostic correction with
+a rollback copy retained. Readback verified source parity and unchanged manifest,
+private configuration, native-host registration and staging database. The next
+manual step is reload-and-open-popup only, to inspect the saved diagnostic; no
+new inspection gesture, receiver start or attempt reset is part of that step.
+The corrected code is not yet live-verified, and the original startup cause is
+still unresolved. No new authenticated collector request or Miyo write occurred.
+
+**T02 isolated startup-only diagnostic preparation:** the operator subsequently
+reloaded the reporting fix and supplied a screenshot showing the saved
+document-bound milestone with the original error unavailable. This verifies the
+new legacy reporting UI, not the original failure cause. The operator then
+approved one isolated startup-only diagnostic, preserving the failed inspection
+and issuing no collector session/conversation requests.
+
+The diagnostic is implemented behind a separate private constructor flag; the
+public package keeps it disabled. Its exact popup gesture requires a reviewed
+private setup configuration and a consistent prior terminal failure fence. It
+writes a new durable diagnostic fence before browser effects, uses a separate
+owned-document record, and never changes the old inspection records. The fixed
+page collector's startup-only mode retains the original context gate, blocks all
+dispatches permanently and cannot be promoted after a context rejection. The
+helper exposes no page handle and validates abort cleanup before reporting a
+pass. No native connection, receiver or authenticated collector request is part
+of this diagnostic. Ordinary traffic from loading the ChatGPT home page remains
+outside the no-collector-request guarantee. Success cannot qualify identity or
+unlock inspection/capture; every attempted diagnostic remains non-retryable.
+
+Validation: all 230 offline tests pass. Coverage includes private/default gates,
+malformed and orphaned records, inconsistent prior failure pairs, restart and
+concurrency fencing, no-fetch page dispatch rejection, separate ownership,
+uncertain cleanup, fixed-code UI and original-evidence preservation. Independent
+review identified the inconsistent-fence case; the correction and regression
+test were re-reviewed with no remaining substantive finding. Repository and
+whitespace checks pass. Secret scans found no credentials: tests/docs were
+clean; the extension scan flagged only the pre-existing public storage-key
+literal, which was manually verified against HEAD. No scanner rule was weakened.
+
+The same private extension directory now contains this diagnostic, with a
+rollback copy retained. Readback verified source parity, owner-only file modes,
+and that the private configuration changed only by adding the diagnostic enable
+flag. The manifest/extension identity, native-host registration, setup config and
+staging database are unchanged. A synthetic status-only import of the private
+package keeps the old inspection blocked and exposes only the new diagnostic;
+this is not a live Chrome test. The receiver socket remains absent. Next manual
+step: reload the existing extension and click **Diagnose startup (no fetch)**
+once, then report its separate message. Do not retry inspection, clear storage,
+remove/reinstall the extension or start a receiver. No live diagnostic was run,
+no Miyo state was written, and these source changes remain uncommitted.
+
+**T02 background-setup continuation (current):** the operator's next screenshot
+showed the first startup-only diagnostic locked with `page_initialization_failed`.
+That old aggregate code cannot distinguish a rejected script invocation from an
+invalid collector result. A second, separately fenced no-fetch diagnostic now
+has source and synthetic coverage, but it was not packaged or run: the operator
+instead approved reassessing page-only credential isolation against installed
+Miyo Capture and Desktop. The comparison and narrow authority amendment appear
+above and in [design evidence](design-evidence.md).
+
+The implemented alternative is `background-setup-inspection`, selected only by
+explicit private configuration and a trusted popup gesture in a non-incognito
+extension context. It opens no page and runs no injected script. The existing
+ChatGPT host permission suffices; no permissions or dependencies were added.
+One fixed credentialed session GET follows the native worker's durable permit
+and dispatch ACK. A fresh collector UUID is recorded separately from Chrome
+document IDs, and old receiver scopes reject the new capability. Tokens and raw
+auth responses are not cached, forwarded, logged or persisted. Principal,
+personal-account and JWT account/expiry checks precede canonical identity-only
+output; response bytes/time and error metadata are bounded. New extension keys,
+receiver scope/root and `background_setup_complete` terminal state preserve both
+old failed page records and prevent retry/promotion. This evidence is a candidate
+backend context only, never visible-page attestation or body qualification.
+
+Source validation currently passes 270 offline tests, including a complete
+background collector-to-native-frames-to-socket-to-SQLite proof, ACK-before-fetch,
+credential sentinel exclusion, scope isolation, terminal reopen fencing,
+lost-dispatch-ACK/no-fetch, lost-commit/no-retry, private/default/incognito gates,
+popup sender checks and unchanged earlier records. Independent review found a
+credential-reference lifetime issue under ignored aborts; abort-aware waits and
+bounded cleanup now settle the collector's own task, with raw response/parser
+references dropped before hashing. The fix and regression tests were re-reviewed
+with no remaining release-blocking finding. Background `reconcile_dispatch` is
+schema validation only in T02: the capability is not advertised, the operation
+is blocked, and uncertain work stays locked for operator review after restart.
+Repository/whitespace checks pass. Secret scans found no credentials; the only
+extension finding remains the pre-existing public storage-key literal, manually
+checked against HEAD. Private identifier/path marker scans also pass.
+
+The existing private extension directory now contains the background flow, with
+the stable manifest/identity/permissions unchanged and prior configuration
+preserved. Its background setup configuration is enabled separately; the unused
+startup diagnostic is disabled, without clearing either old Chrome fence. A new
+owner-only source/receiver release and empty staging root are prepared. The custom
+native-host registration now points to that snapshot's launcher so native
+validation recognizes the new capability and collector field; its name/origin/
+type are unchanged. The previous extension and registration are retained for
+rollback, and the old private setup configuration/database hashes are unchanged.
+Stock Miyo Capture and its registration are untouched.
+
+Readback verified source parity and owner-only modes. A synthetic import/status
+smoke test of the private package confirmed no automatic fetch, native connection,
+tab/script effect or storage write; the original inspection remains blocked,
+only background setup is ready, and capture remains disabled. These are not live
+Chrome results. The receiver remains stopped and its socket absent. Next manual
+step: reload the existing extension, then notify the operator before clicking
+**Inspect session in extension**, so the bounded receiver can be started just in
+time. Do not clear extension storage, reinstall, retry the old inspection or
+click before that receiver is ready. No authenticated background request or live
+Miyo operation has run. Source changes remain uncommitted.
+
+**T02 live background setup result (supersedes the reload handoff above):** after
+the operator reloaded the private package, the bounded foreground receiver was
+started with verified exclusive OS-lock ownership, an owner-only Unix socket and
+fresh `background-setup-inspection` state. The operator clicked the separate
+background inspection once and supplied the completion screenshot. Read-only
+verification found the durable `background_setup_complete` state, six successful
+native protocol receipts, one session permit, zero body permits, no blocker and
+no active permit. The single committed artifact contains exactly the canonical
+principal/context fields: the principal matches the approved historical binding,
+the context is a bounded candidate, and artifact size/SHA-256 match both stored
+evidence and the commit receipt. No raw auth response or credential fields are
+present in that artifact. `attested` remains false; no body artifact, catalog,
+publication or Miyo operation was performed.
+
+The verified receiver was stopped gracefully (exit zero), and its process,
+socket listener and OS-lock ownership were released. Existing failed page
+attempts remain preserved; their old warning does not negate this separate
+success. Live session setup is now qualified for the tested package/profile,
+but T02 remains open for the selected-conversation body proof. Next is a reviewed
+body-request/context-binding contract and a separately bounded selected-body
+test; neither success here nor the discovered context enables that step
+automatically. Source changes remain uncommitted. No further manual click is
+needed until the next package/test handoff.
 
 ## 14. Evidence and primary references
 
