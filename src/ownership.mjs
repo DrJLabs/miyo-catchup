@@ -54,6 +54,7 @@ export function spawnOwnedProcess({
     privateMode: false,
     trustedBoundary,
   });
+  preflightExecutable(FLOCK_PATH);
   const command = preflightExecutable(executable);
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== 'string' || arg.includes('\0'))) {
     throw new OwnershipError('command args must be a NUL-free string array', 'invalid_args');

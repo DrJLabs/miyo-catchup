@@ -326,8 +326,14 @@ function validateStatusValue(errors, value) {
   enumValue(errors, value.connectivity, '$.connectivity', ['available', 'unavailable']);
   enumValue(errors, value.liveness, '$.liveness', ['live', 'stale', 'unavailable']);
   if (value.connectivity === 'unavailable' && value.liveness !== 'unavailable') fail(errors, '$.liveness', 'disconnected worker cannot be live or stale-connected');
+  if (value.connectivity === 'available' && value.liveness === 'unavailable') fail(errors, '$.liveness', 'available worker must be live or stale');
   for (const key of ['heartbeat_at', 'receipt_evidence_at', 'next_scheduled_due_at', 'cooldown_until', 'retry_at']) nullable(errors, value[key], `$.${key}`, dateTime);
-  if (value.liveness === 'live' && (value.worker_instance_id === null || value.worker_version === null || value.heartbeat_at === null || Date.parse(value.generated_at) - Date.parse(value.heartbeat_at) > 90_000 || Date.parse(value.heartbeat_at) > Date.parse(value.generated_at))) fail(errors, '$.liveness', 'live status requires a current worker heartbeat');
+  const generatedAt = Date.parse(value.generated_at);
+  const heartbeatAt = value.heartbeat_at === null ? null : Date.parse(value.heartbeat_at);
+  const heartbeatAge = heartbeatAt === null ? null : generatedAt - heartbeatAt;
+  if (value.connectivity === 'available' && heartbeatAt !== null && heartbeatAt > generatedAt) fail(errors, '$.heartbeat_at', 'available status cannot report a future heartbeat');
+  if (value.liveness === 'live' && (value.worker_instance_id === null || value.worker_version === null || heartbeatAt === null || heartbeatAge > 90_000 || heartbeatAge < 0)) fail(errors, '$.liveness', 'live status requires a current worker heartbeat');
+  if (value.liveness === 'stale' && (value.worker_instance_id === null || value.worker_version === null || heartbeatAt === null || heartbeatAge <= 90_000)) fail(errors, '$.liveness', 'stale status requires an identified worker heartbeat older than the threshold');
   boolean(errors, value.pause_requested, '$.pause_requested'); boolean(errors, value.paused_at_safe_boundary, '$.paused_at_safe_boundary');
   if (value.paused_at_safe_boundary && !value.pause_requested) fail(errors, '$.paused_at_safe_boundary', 'requires pause intent');
   if (!Array.isArray(value.blockers) || value.blockers.length > REPLY_ERROR_CODES.length || new Set(value.blockers).size !== value.blockers.length) fail(errors, '$.blockers', 'must be unique bounded error codes');
@@ -353,9 +359,9 @@ function validateStatusValue(errors, value) {
   const p = run.progress;
   if (!object(errors, p, '$.run.progress', new Set(COUNT_KEYS), COUNT_KEYS)) return;
   for (const key of COUNT_KEYS) finiteInteger(errors, p[key], `$.run.progress.${key}`);
-  if (p.selected !== p.selected_new + p.selected_updated + p.selected_missing_body || p.published > p.staged || p.staged > p.downloaded || p.downloaded > p.selected || p.verified > p.selected || p.downloaded !== p.fetched + p.reused) fail(errors, '$.run.progress', 'invalid progress ordering or totals');
+  if (p.selected !== p.selected_new + p.selected_updated + p.selected_missing_body || p.published > p.staged || p.staged > p.downloaded || p.downloaded > p.selected || p.indexed > p.selected || p.verified > p.indexed || p.verified > p.selected || p.downloaded !== p.fetched + p.reused) fail(errors, '$.run.progress', 'invalid progress ordering or totals');
   if (run.mode === 'dry_run' && (p.published || p.metadata_changed || p.verified || ['importing', 'indexing', 'final_verification', 'verified'].includes(run.stage))) fail(errors, '$.run', 'dry run cannot publish or verify');
-  if (run.stage === 'verified' && (p.verified !== p.selected || run.scan?.coverage !== 'qualified_catalog_only' || value.blockers?.length)) fail(errors, '$.run', 'verified requires complete unblocked selected-version evidence');
+  if (run.stage === 'verified' && (p.verified !== p.selected || p.indexed !== p.selected || run.scan?.coverage !== 'qualified_catalog_only' || value.blockers?.length)) fail(errors, '$.run', 'verified requires complete indexed and unblocked selected-version evidence');
   if (run.stage === 'dry_run_complete' && run.mode !== 'dry_run') fail(errors, '$.run.stage', 'requires dry-run mode');
 }
 

@@ -737,7 +737,7 @@ process-lifetime `flock` ownership. Source lives in `src/`, four contracts in
 No CLI, extension, collector, coordinator, importer, installer or service is
 implemented or installed by this checkpoint.
 
-Validation on Node 22.23.2 and Linux: `npm test` passed 59 tests;
+Validation on Node 22.23.2 and Linux: `npm test` passed 62 tests;
 `npm run check` and `git diff --check` passed. Tests include schema-shape parity,
 identity/version/unknown-field rejection, UTF-8/frame/chunk limits, consumer
 backpressure, SQLite commit/rollback across SIGKILL, busy errors, consistent
@@ -750,7 +750,10 @@ unknown-schema checks that must not create SQLite sidecars. The schema-version
 fixture explicitly creates a private file instead of depending on the runner's
 umask. Backup destinations reject pre-existing sidecars without removing them;
 new private files set permissions through their open descriptor. All state is
-synthetic and temporary. SQLite still emits its
+synthetic and temporary. Status validation checks indexed evidence before
+verification and consistent connected/live/stale heartbeat evidence; process
+ownership preflights the pinned `flock` executable before creating a lock file.
+SQLite still emits its
 experimental-feature warning on this pinned Node version.
 Complete WAL/SHM read-only inspection may update transient SHM coordination
 bytes; qualification observed unchanged main-database and WAL bytes, not

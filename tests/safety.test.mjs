@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {
+import fs, {
   chmodSync,
   existsSync,
   linkSync,
@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { syncBuiltinESMExports } from 'node:module';
 import test from 'node:test';
 import {
   UnsafePathError,
@@ -22,7 +23,7 @@ import {
   ensurePrivateDirectory,
   normalizeAbsolutePath,
 } from '../src/safe-paths.mjs';
-import { spawnOwnedProcess } from '../src/ownership.mjs';
+import { FLOCK_PATH, spawnOwnedProcess } from '../src/ownership.mjs';
 
 const REPOSITORY = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 
@@ -163,4 +164,24 @@ test('ownership validates the command before creating its lock artifact', (t) =>
     stdio: 'ignore',
   }), /args/);
   assert.equal(existsSync(lockPath), false);
+});
+
+test('unavailable flock fails before creating a lock artifact', (t) => {
+  const root = fixture(t);
+  const lockPath = join(root, 'unavailable-flock.lock');
+  const originalAccess = fs.accessSync;
+  t.mock.method(fs, 'accessSync', (path, mode) => {
+    if (path === FLOCK_PATH) throw new Error('synthetic executable unavailable');
+    return originalAccess(path, mode);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => spawnOwnedProcess({
+      lockPath, executable: process.execPath, trustedBoundary: root, stdio: 'ignore',
+    }), (error) => error?.code === 'invalid_executable');
+    assert.equal(existsSync(lockPath), false);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });

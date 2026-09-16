@@ -244,6 +244,8 @@ test('status cannot mask disconnection, paused cooldown, partial scans or invali
   for (const change of [
     (s) => { s.connectivity = 'unavailable'; },
     (s) => { s.heartbeat_at = '2026-09-14T00:00:00Z'; },
+    (s) => { s.run.progress.selected = 1; s.run.progress.selected_new = 1; s.run.progress.verified = 1; s.run.progress.indexed = 0; },
+    (s) => { s.run.progress.selected = 1; s.run.progress.selected_new = 1; s.run.progress.indexed = 2; },
     (s) => { s.run.stage = 'verified'; },
     (s) => { s.run.progress.published = 1; },
     (s) => { s.run.mode = 'dry_run'; s.run.stage = 'verified'; },
@@ -253,6 +255,78 @@ test('status cannot mask disconnection, paused cooldown, partial scans or invali
   Object.assign(paused, { pause_requested: true, paused_at_safe_boundary: true, blockers: ['cooldown'], primary_blocker: 'cooldown', cooldown_until: '2026-09-15T01:00:00Z' });
   assert.equal(validateStatus(paused).ok, true);
   assert.equal(conforms('status', paused), true);
+});
+
+test('status liveness uses strict heartbeat boundaries and preserves independent connectivity', () => {
+  const staleFresh = statusFixture();
+  staleFresh.liveness = 'stale';
+  assert.equal(validateStatus(staleFresh).ok, false);
+
+  const staleAtBoundary = statusFixture();
+  staleAtBoundary.liveness = 'stale';
+  staleAtBoundary.heartbeat_at = '2026-09-14T23:58:30Z';
+  assert.equal(validateStatus(staleAtBoundary).ok, false);
+
+  const stale = statusFixture();
+  stale.liveness = 'stale';
+  stale.heartbeat_at = '2026-09-14T23:58:29.999Z';
+  assert.equal(validateStatus(stale).ok, true);
+
+  const staleWithoutHeartbeat = statusFixture();
+  staleWithoutHeartbeat.liveness = 'stale';
+  staleWithoutHeartbeat.heartbeat_at = null;
+  assert.equal(validateStatus(staleWithoutHeartbeat).ok, false);
+
+  for (const key of ['worker_instance_id', 'worker_version']) {
+    const staleWithoutIdentity = structuredClone(stale);
+    staleWithoutIdentity[key] = null;
+    assert.equal(validateStatus(staleWithoutIdentity).ok, false);
+  }
+
+  const liveAtBoundary = statusFixture();
+  liveAtBoundary.heartbeat_at = '2026-09-14T23:58:30Z';
+  assert.equal(validateStatus(liveAtBoundary).ok, true);
+
+  const liveOld = statusFixture();
+  liveOld.heartbeat_at = '2026-09-14T23:58:29.999Z';
+  assert.equal(validateStatus(liveOld).ok, false);
+
+  const future = statusFixture();
+  future.heartbeat_at = '2026-09-15T00:00:00.001Z';
+  assert.equal(validateStatus(future).ok, false);
+  future.liveness = 'stale';
+  assert.equal(validateStatus(future).ok, false);
+
+  const reachableButUnavailable = statusFixture();
+  reachableButUnavailable.liveness = 'unavailable';
+  assert.equal(validateStatus(reachableButUnavailable).ok, false);
+
+  const disconnected = structuredClone(stale);
+  disconnected.connectivity = 'unavailable';
+  disconnected.liveness = 'unavailable';
+  assert.equal(validateStatus(disconnected).ok, true);
+  disconnected.worker_instance_id = null;
+  disconnected.worker_version = null;
+  disconnected.heartbeat_at = null;
+  assert.equal(validateStatus(disconnected).ok, true);
+});
+
+test('verified status requires every selected item to be indexed', () => {
+  const complete = statusFixture();
+  complete.run.stage = 'verified';
+  complete.run.scan = { generation: 1, started_at: '2026-09-15T00:00:00Z', ended_at: '2026-09-15T00:01:00Z', coverage: 'qualified_catalog_only' };
+  Object.assign(complete.run.progress, { selected: 1, selected_new: 1, downloaded: 1, fetched: 1, staged: 1, published: 1, indexed: 1, verified: 1 });
+  assert.equal(validateStatus(complete).ok, true);
+  assert.equal(conforms('status', complete), true);
+
+  const notIndexed = structuredClone(complete);
+  notIndexed.run.progress.indexed = 0;
+  assert.equal(validateStatus(notIndexed).ok, false);
+  assert.equal(conforms('status', notIndexed), true);
+
+  const overIndexed = structuredClone(complete);
+  overIndexed.run.progress.indexed = 2;
+  assert.equal(validateStatus(overIndexed).ok, false);
 });
 
 test('schema files are versioned strict JSON without dependencies', () => {
