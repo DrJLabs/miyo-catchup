@@ -255,19 +255,31 @@ function checkFence(state, request, permitRequired = true) {
  * Construct one bounded, private T02 receiver.
  *
  * `root` is mandatory; `trustedBoundary` is an explicit test-only exception to
- * full ancestor validation. `validateBody` is mandatory because the receiver
- * has no production adapter or schema. `ownership` is a required caller-held
+ * full ancestor validation. `validateBody` is mandatory for conversation scope;
+ * session-only scope never admits body work and therefore does not require one.
+ * `ownership` is a required caller-held
  * lock assertion, not an acquisition mechanism; in production the
  * caller must hold an OS flock for the process lifetime. This module never
  * creates PID/stale lock files or claims cross-process exclusivity.
  */
 export function createProbeReceiver(options = {}) {
+  const requestedScope = options.scope;
+  const scope = requestedScope === undefined ? 'conversation' : requestedScope;
+  if (scope !== 'conversation' && scope !== 'session-only') {
+    throw new TypeError('scope must be conversation or session-only');
+  }
   const root = normalizeAbsolutePath(options.root, 'probe root');
   const trustedBoundary = options.trustedBoundary === undefined
     ? undefined : normalizeAbsolutePath(options.trustedBoundary, 'trustedBoundary');
   const binding = assertBinding(options);
   const conversationId = validIdentifier(options.conversationId, 'conversationId');
-  if (typeof options.validateBody !== 'function') throw new TypeError('validateBody must be injected');
+  if (scope === 'conversation' && typeof options.validateBody !== 'function') {
+    throw new TypeError('validateBody must be injected');
+  }
+  // Session-only roots never admit body work. Keep a defensive false validator
+  // in case a malformed or manually altered permit reaches the commit branch;
+  // a caller-supplied callback must not affect this scope.
+  const validateBody = scope === 'session-only' ? () => false : options.validateBody;
   if (typeof options.ownership !== 'function' || options.ownership() !== true) {
     throw new Error('probe receiver ownership was not proven');
   }
@@ -298,21 +310,31 @@ export function createProbeReceiver(options = {}) {
   let state;
   const clock = options.clock;
   const now = () => readClock(clock);
+  const bindingHash = scope === 'session-only'
+    ? digest(canonical({ binding, scope }))
+    : digest(canonical(binding));
   const initial = {
-    stage: 'new', request_count: 0, attested: false, blocker: null,
+    scope, stage: 'new', request_count: 0, attested: false, blocker: null,
     worker_instance_id: randomUUID(), run_id: null, attempt_id: null,
     lease_generation: 0, browser_instance_id: null, document_id: null,
     last_clock: now(), next_permit_at: null, next_permit_monotonic: null,
     lease_valid_until: null, lease_monotonic_until: null,
     cooldown_until: null, cooldown_unbounded: false, failure: null,
-    binding_hash: digest(canonical(binding)), conversation_hash: digest(conversationId),
+    binding_hash: bindingHash, conversation_hash: digest(conversationId),
     session: null, body: null, permit: null,
   };
   if (existing) {
     state = JSON.parse(existing.state);
-    if (state.binding_hash !== initial.binding_hash || state.conversation_hash !== initial.conversation_hash) {
+    const storedScope = state.scope === undefined ? 'conversation' : state.scope;
+    if (storedScope !== scope || state.binding_hash !== initial.binding_hash || state.conversation_hash !== initial.conversation_hash) {
       db.close();
-      throw new Error('probe binding or conversation changed for existing root');
+      throw new Error('probe scope, binding or conversation changed for existing root');
+    }
+    // Preserve compatibility with roots created before scope was introduced,
+    // while durably pinning their implicit default conversation scope.
+    if (state.scope === undefined) {
+      state.scope = 'conversation';
+      transaction(db, (connection) => writeState(connection, state));
     }
   }
   else transaction(db, (connection) => {
@@ -467,6 +489,12 @@ export function createProbeReceiver(options = {}) {
 
   function claim(request) {
     const p = request.payload;
+    if (scope === 'session-only' && state.attested) {
+      return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
+    }
+    if (scope === 'session-only' && (p.principal_id !== null || p.context_id !== null)) {
+      return boundedResponse(request, reply(request.request_id, false, fail('blocked')));
+    }
     if (state.blocker || state.stage === 'probe_complete') {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
     }
@@ -507,6 +535,9 @@ export function createProbeReceiver(options = {}) {
   }
 
   function permit(request) {
+    if (scope === 'session-only' && state.attested) {
+      return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
+    }
     const expectedUnit = state.attested ? 'body' : 'session-check';
     if (!fence(request, request.payload.work_unit_id) || request.payload.work_unit_id !== expectedUnit) {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
@@ -548,6 +579,9 @@ export function createProbeReceiver(options = {}) {
   }
 
   function dispatchStarted(request) {
+    if (scope === 'session-only' && state.attested) {
+      return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
+    }
     const permitState = permitFor(request);
     if (!permitState || permitState.status !== 'granted') {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
@@ -658,7 +692,7 @@ export function createProbeReceiver(options = {}) {
       }
     } else {
       let valid = false;
-      try { valid = options.validateBody(parsed, conversationId) === true; } catch { valid = false; }
+      try { valid = validateBody(parsed, conversationId) === true; } catch { valid = false; }
       if (!valid) {
         state.blocker = 'invalid_body'; state.stage = 'blocked';
         persistState();

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createNativeClient, runProbe } from '../extension/probe-client.mjs';
+import { createNativeClient, runProbe, runSessionCheck } from '../extension/probe-client.mjs';
 import { assertReply, assertRequest, MAX_RAW_CHUNK_BYTES } from '../src/contracts.mjs';
 
 const binding = { principal_id: 'synthetic-user', context_id: 'synthetic-personal' };
@@ -109,6 +109,103 @@ test('AC06: sanitized 429 failure is persisted before forwarding; no new permits
   await assert.rejects(runProbe(fixture.options), { code: 'probe_failed' });
   assert.deepEqual(fixture.stored[0].payload, failure);
   assert.equal(fixture.messages.filter((message) => message.operation === 'request_permit').length, 1);
+});
+
+test('session-only qualification advertises and dispatches only one session, then aborts the page', async () => {
+  const fixture = syntheticProbe();
+  delete fixture.options.conversationId;
+  const result = await runSessionCheck(fixture.options);
+  assert.equal(result.state, 'session_check_complete');
+  assert.equal(result.receipts.length, 1);
+  assert.deepEqual(fixture.messages[0].payload.capabilities, ['session_check', 'chunking']);
+  const claims = fixture.messages.filter((message) => message.operation === 'claim_work');
+  assert.equal(claims.length, 1);
+  assert.equal(claims[0].payload.principal_id, null);
+  assert.equal(claims[0].payload.context_id, null);
+  assert.equal(fixture.messages.filter((message) => message.operation === 'request_permit').length, 1);
+  assert.equal(fixture.messages.filter((message) => message.operation === 'commit_result').length, 1);
+  assert.deepEqual(fixture.pageCalls, ['dispatch', 'pull', 'release', 'abort']);
+  assert.deepEqual(fixture.waits, []);
+});
+
+test('session-only qualification stops on lost ACK and persists failures without a second dispatch', async () => {
+  for (const options of [{ loseCommit: true }, { failure: { failure_class: 'rate_limited', http_status: 429, retry_after: '3601' } }]) {
+    const fixture = syntheticProbe(options);
+    await assert.rejects(runSessionCheck(fixture.options), { code: options.loseCommit ? 'dispatch_uncertain' : 'probe_failed' });
+    assert.equal(fixture.pageCalls.filter((op) => op === 'dispatch').length, 1);
+    assert.equal(fixture.messages.filter((message) => message.operation === 'request_permit').length, 1);
+    assert.equal(fixture.pageCalls.at(-1), 'abort');
+    assert.equal(fixture.stored.length, options.loseCommit ? 0 : 1);
+  }
+});
+
+test('session-only qualification refuses an unexpected body permit before page dispatch', async () => {
+  const fixture = syntheticProbe();
+  const original = fixture.options.request;
+  fixture.options.request = async (message) => {
+    const reply = await original(message);
+    if (message.operation === 'request_permit') {
+      reply.result.request_kind = 'body';
+      reply.result.arguments = { conversation_ids: ['synthetic-conversation'] };
+    }
+    return reply;
+  };
+  await assert.rejects(runSessionCheck(fixture.options), { code: 'invalid_probe_message' });
+  assert.deepEqual(fixture.pageCalls, ['abort']);
+  assert.equal(fixture.messages.some((message) => message.operation === 'dispatch_started'), false);
+});
+
+test('both qualification clients reject oversized or multi-chunk session declarations before pulling', async () => {
+  for (const run of [runProbe, runSessionCheck]) {
+    for (const change of [{ raw_bytes: 16385 }, { chunk_count: 2 }]) {
+      const fixture = syntheticProbe();
+      const original = fixture.options.page.call;
+      fixture.options.page.call = async (command) => {
+        const result = await original(command);
+        return command.operation === 'dispatch' ? { ...result, ...change } : result;
+      };
+      await assert.rejects(run(fixture.options), { code: 'invalid_probe_message' });
+      assert.equal(fixture.pageCalls.includes('pull'), false);
+      assert.equal(fixture.messages.some((message) => message.operation === 'result_chunk'), false);
+    }
+  }
+});
+
+test('session chunks with extra fields or mismatched identity never reach native storage', async () => {
+  for (const run of [runProbe, runSessionCheck]) {
+    for (const value of [{ ...binding, token: 'SYNTHETIC_PAGE_ONLY_TOKEN' },
+      { ...binding, principal_id: 'wrong-principal' }, { ...binding, context_id: 'wrong-context' }, null]) {
+      const fixture = syntheticProbe();
+      const original = fixture.options.page.call;
+      fixture.options.page.call = async (command) => {
+        const result = await original(command);
+        if (command.operation !== 'pull') return result;
+        const bytes = Buffer.from(JSON.stringify(value));
+        return { ...result, data: bytes.toString('base64'), decoded_bytes: bytes.length };
+      };
+      await assert.rejects(run(fixture.options), { code: 'invalid_probe_message' });
+      assert.equal(fixture.messages.some((message) => message.operation === 'result_chunk'), false);
+      assert.equal(JSON.stringify(fixture.messages).includes('SYNTHETIC_PAGE_ONLY_TOKEN'), false);
+    }
+  }
+});
+
+test('session chunks cannot hide discarded values in duplicate JSON keys or invalid UTF-8', async () => {
+  for (const data of [
+    Buffer.from(`{"principal_id":"SYNTHETIC_PAGE_ONLY_TOKEN",${JSON.stringify(binding).slice(1)}`),
+    Buffer.concat([Buffer.from([0xff]), Buffer.from(JSON.stringify(binding))]),
+    Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(JSON.stringify(binding))]),
+  ]) {
+    const fixture = syntheticProbe();
+    const original = fixture.options.page.call;
+    fixture.options.page.call = async (command) => {
+      const result = await original(command);
+      return command.operation === 'pull'
+        ? { ...result, data: data.toString('base64'), decoded_bytes: data.length } : result;
+    };
+    await assert.rejects(runSessionCheck(fixture.options), { code: 'invalid_probe_message' });
+    assert.equal(fixture.messages.some((message) => message.operation === 'result_chunk'), false);
+  }
 });
 
 function event() {

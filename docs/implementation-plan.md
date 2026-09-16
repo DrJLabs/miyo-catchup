@@ -903,6 +903,40 @@ See [T02 qualification boundary](t02-qualification.md) for implemented interface
 official API references and the remaining proof. The T02 checkbox above remains
 open; `probe_complete` is not catalog or verified-run completion.
 
+**T02 session-only continuation:** at the operator's request, the preceding
+transport/package/checkpoint snapshot was committed locally as `bdff29a`, with
+158 offline tests passing and no push. Staged review and private-marker checks
+found no private data; the secret scanner's sole finding was a reviewed benign
+storage-key constant, not a credential.
+
+The next source slice adds `runSessionCheck` using existing protocol-v1 session
+permits, durable dispatch ACKs and receipts, then stops without advertising,
+claiming or dispatching body work. Its result is `session_check_complete`, never
+capture/probe/catalog completion. Both clients reject session results larger
+than one 16 KiB chunk, extra fields, changed identity/context and noncanonical
+JSON before native forwarding. A receiver's explicit `session-only` scope
+durably refuses body work and cannot be promoted to conversation scope by
+reopening the same root. Its distinct binding hash also rejects reopening by
+older conversation-only code. Existing default conversation roots retain their
+contract; a new private scope is not a reset of failed or uncertain evidence.
+Session-only scope needs no body validator and cannot use a supplied validator
+to admit body work.
+
+Validation: all 171 offline tests pass, including both full-probe and session-only
+page-to-native-to-private-staging paths, strict session serialization, durable
+scope binding and legacy conversation-root compatibility. Repository checks and
+diff whitespace checks pass. Independent review found no security blockers;
+its documentation correction was applied. These are synthetic proofs, not live
+Chrome or account-context qualification.
+
+This slice remains source-only: it is not wired into the installed popup, no
+private package was changed, and the reviewed real-adapter registry remains
+empty. Current session response requirements, effective workspace/context
+attestation and read-only principal-to-Miyo-account mapping remain unresolved.
+Do not infer them from the prior UI observation or configured values. No new
+browser permissions or wire operations, authenticated requests, capture, Miyo
+writes, service/timer activation or push occurred during this continuation.
+
 ## 14. Evidence and primary references
 
 The L-series labels preserve traceability to the original design observations.

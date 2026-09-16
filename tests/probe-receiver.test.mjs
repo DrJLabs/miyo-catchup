@@ -45,6 +45,26 @@ function receiverFixture(t, options = {}) {
   return { root, receiver, time };
 }
 
+function sessionOnlyFixture(t, options = {}) {
+  const root = temporaryRoot(t);
+  const time = clockFixture();
+  const receiver = createProbeReceiver({
+    root, trustedBoundary: root, binding, conversationId,
+    clock: time.clock, scope: 'session-only', ownership: () => true,
+    validateBody: () => true, ...options,
+  });
+  t.after(() => receiver.close());
+  return { root, receiver, time };
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function hello(receiver) {
   const result = receiver.request(makeRequest('hello', {
     extension_version: '1.0.0', browser_instance_id: browser,
@@ -122,6 +142,132 @@ test('T02 positive session then one pinned body preserves exact bytes and report
   assert.equal(snapshot.sha256, body.digest);
   const artifact = join(root, 'artifacts', `${bodyCommit.result.artifact_id}.json`);
   assert.deepEqual(readFileSync(artifact), body.bytes);
+});
+
+test('T02 session-only scope commits sanitized session and permanently blocks body work', (t) => {
+  const { receiver, root } = sessionOnlyFixture(t);
+  const transfer = sessionStart(receiver);
+  const sessionRaw = sendJson(receiver, transfer, { principal_id: binding.principal_id, context_id: binding.context_id });
+  const sessionCommit = commit(receiver, transfer, sessionRaw.bytes, sessionRaw.digest);
+  assert.equal(sessionCommit.ok, true, JSON.stringify(sessionCommit));
+  assert.equal(receiver.snapshot().session_committed, true);
+  assert.equal(receiver.snapshot().probe_complete, false);
+  assert.deepEqual(readFileSync(join(root, 'artifacts', `${sessionCommit.result.artifact_id}.json`)), sessionRaw.bytes);
+
+  const bodyClaim = receiver.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: binding.principal_id, context_id: binding.context_id,
+  }));
+  assert.deepEqual(bodyClaim.error, { code: 'blocked' });
+  const extraSession = receiver.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: null, context_id: null,
+  }));
+  assert.deepEqual(extraSession.error, { code: 'blocked' });
+
+  const prior = transfer.fields;
+  const bodyPermit = receiver.request(makeRequest('request_permit', { work_unit_id: 'body' }, prior));
+  assert.deepEqual(bodyPermit.error, { code: 'blocked' });
+  const bodyStart = receiver.request(makeRequest('dispatch_started', {
+    browser_instance_id: browser, document_id: documentId,
+  }, { ...prior, permit_id: transfer.permit.permit_id }));
+  assert.deepEqual(bodyStart.error, { code: 'blocked' });
+});
+
+test('T02 session-only scope does not require or invoke a body validator', (t) => {
+  const root = temporaryRoot(t);
+  const time = clockFixture();
+  let called = 0;
+  const receiver = createProbeReceiver({
+    root, trustedBoundary: root, binding, conversationId, clock: time.clock,
+    scope: 'session-only', ownership: () => true,
+    validateBody: () => { called += 1; return true; },
+  });
+  t.after(() => receiver.close());
+  const transfer = sessionStart(receiver);
+  const sessionRaw = sendJson(receiver, transfer, { principal_id: binding.principal_id, context_id: binding.context_id });
+  const sessionCommit = commit(receiver, transfer, sessionRaw.bytes, sessionRaw.digest);
+  assert.equal(sessionCommit.ok, true, JSON.stringify(sessionCommit));
+  assert.equal(called, 0);
+
+  receiver.close();
+  const reopened = createProbeReceiver({
+    root, trustedBoundary: root, binding, conversationId, scope: 'session-only',
+    ownership: () => true,
+  });
+  t.after(() => reopened.close());
+  assert.equal(reopened.snapshot().probe_complete, false);
+  assert.equal(called, 0);
+});
+
+test('T02 session-only scope rejects invalid construction before effects', (t) => {
+  const root = temporaryRoot(t);
+  let owned = 0;
+  for (const scope of ['body-and-session', null]) {
+    assert.throws(() => createProbeReceiver({
+      scope, root, trustedBoundary: root, binding, conversationId,
+      ownership: () => { owned += 1; return true; }, validateBody: () => true,
+    }), /scope must be/);
+  }
+  assert.equal(owned, 0);
+  assert.equal(readdirSync(root).length, 0);
+});
+
+test('T02 session-only scope remains pinned across restart and rejects conversation reopen', (t) => {
+  const { root, receiver } = sessionOnlyFixture(t);
+  const transfer = sessionStart(receiver);
+  const sessionRaw = sendJson(receiver, transfer, { principal_id: binding.principal_id, context_id: binding.context_id });
+  const sessionCommit = commit(receiver, transfer, sessionRaw.bytes, sessionRaw.digest);
+  assert.equal(sessionCommit.ok, true, JSON.stringify(sessionCommit));
+  const stateDb = new DatabaseSync(join(root, 'probe-state.db'));
+  const stored = JSON.parse(stateDb.prepare('SELECT state FROM probe_state WHERE id = 1').get().state);
+  stateDb.close();
+  assert.equal(stored.scope, 'session-only');
+  assert.notEqual(stored.binding_hash, createHash('sha256').update(canonical(binding)).digest('hex'));
+  receiver.close();
+
+  assert.throws(() => createProbeReceiver({
+    root, trustedBoundary: root, binding, conversationId, ownership: () => true,
+    validateBody: () => true, scope: 'conversation',
+  }), /scope|binding|conversation/);
+  const reopened = createProbeReceiver({
+    root, trustedBoundary: root, binding, conversationId, ownership: () => true,
+    validateBody: () => true, scope: 'session-only',
+  });
+  t.after(() => reopened.close());
+  const extraSession = reopened.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: null, context_id: null,
+  }));
+  assert.deepEqual(extraSession.error, { code: 'dispatch_uncertain' });
+  const bodyClaim = reopened.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: binding.principal_id, context_id: binding.context_id,
+  }));
+  assert.deepEqual(bodyClaim.error, { code: 'dispatch_uncertain' });
+  const bodyPermit = reopened.request(makeRequest('request_permit', { work_unit_id: 'body' }, transfer.fields));
+  assert.deepEqual(bodyPermit.error, { code: 'dispatch_uncertain' });
+  const bodyStart = reopened.request(makeRequest('dispatch_started', {
+    browser_instance_id: browser, document_id: documentId,
+  }, { ...transfer.fields, permit_id: transfer.permit.permit_id }));
+  assert.deepEqual(bodyStart.error, { code: 'dispatch_uncertain' });
+});
+
+test('T02 legacy conversation roots without a scope field reopen as conversation only', (t) => {
+  const { root, receiver } = receiverFixture(t);
+  receiver.close();
+  const db = new DatabaseSync(join(root, 'probe-state.db'));
+  const prior = JSON.parse(db.prepare('SELECT state FROM probe_state WHERE id = 1').get().state);
+  delete prior.scope;
+  db.prepare('UPDATE probe_state SET state = ? WHERE id = 1').run(JSON.stringify(prior));
+  db.close();
+  const reopened = createProbeReceiver({ root, trustedBoundary: root, binding, conversationId,
+    ownership: () => true, validateBody: () => true });
+  t.after(() => reopened.close());
+  assert.equal(reopened.snapshot().probe_complete, false);
+});
+
+test('T02 conversation scope cannot reopen as session-only', (t) => {
+  const { root, receiver } = receiverFixture(t);
+  receiver.close();
+  assert.throws(() => createProbeReceiver({ root, trustedBoundary: root, binding, conversationId,
+    scope: 'session-only', ownership: () => true, validateBody: () => true }), /scope|binding|conversation/);
 });
 
 test('T02 persists permit before ACK, enforces expiry and conservative spacing', (t) => {

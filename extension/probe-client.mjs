@@ -142,14 +142,23 @@ function failurePayload(value) {
  * must target an already initialized, positively owned document. A rejected
  * result, lost ACK, or lost document ends the probe; it never fetches again.
  */
-export async function runProbe({ request, page, browserInstanceId, binding,
+export async function runProbe(options = {}) {
+  return runQualification(options, false);
+}
+
+/** Session-only qualification: never advertise, claim, permit or dispatch body work. */
+export async function runSessionCheck(options = {}) {
+  return runQualification(options, true);
+}
+
+async function runQualification({ request, page, browserInstanceId, binding,
   conversationId,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  persistFailure, uuid = () => crypto.randomUUID() } = {}) {
+  persistFailure, uuid = () => crypto.randomUUID() }, sessionOnly) {
   if (typeof request !== 'function' || typeof page?.call !== 'function'
     || typeof persistFailure !== 'function' || typeof wait !== 'function') reject();
   text(browserInstanceId, UUID);
-  text(conversationId, ID);
+  if (!sessionOnly) text(conversationId, ID);
   text(page.documentId, ID);
   keys(binding, ['principal_id', 'context_id']);
   text(binding.principal_id, ID); text(binding.context_id, ID);
@@ -167,11 +176,11 @@ export async function runProbe({ request, page, browserInstanceId, binding,
   const receipts = [];
   try {
     const hello = await send('hello', { extension_version: '0.0.0', browser_instance_id: browserInstanceId,
-      capabilities: ['session_check', 'body', 'chunking'] });
+      capabilities: sessionOnly ? ['session_check', 'chunking'] : ['session_check', 'body', 'chunking'] });
     keys(hello, ['worker_instance_id', 'protocol_version', 'config_version']);
     text(hello.worker_instance_id, UUID);
     if (hello.protocol_version !== 1 || hello.config_version !== 1) reject();
-    for (const kind of ['session_check', 'body']) {
+    for (const kind of sessionOnly ? ['session_check'] : ['session_check', 'body']) {
       if (kind === 'body') await wait(10000); // grant validity plus dispatch spacing
       const claimed = await send('claim_work', { browser_instance_id: browserInstanceId,
         principal_id: kind === 'body' ? binding.principal_id : null,
@@ -214,19 +223,36 @@ export async function runProbe({ request, page, browserInstanceId, binding,
       }
       keys(result, ['ok', 'raw_bytes', 'chunk_count', 'sha256']);
       if (result.ok !== true) reject();
-      integer(result.raw_bytes, 1, 67108864);
-      integer(result.chunk_count, 1, Math.ceil(67108864 / 184320));
+      const resultLimit = kind === 'session_check' ? 16384 : 67108864;
+      integer(result.raw_bytes, 1, resultLimit);
+      integer(result.chunk_count, 1, Math.ceil(resultLimit / 184320));
       text(result.sha256, SHA);
       let bytes = 0;
       for (let sequence = 0; sequence < result.chunk_count; sequence += 1) {
         const chunk = await page.call({ operation: 'pull', sequence });
         keys(chunk, ['ok', 'sequence', 'decoded_bytes', 'data']);
         if (chunk.ok !== true || chunk.sequence !== sequence) reject();
-        integer(chunk.decoded_bytes, 1, 184320);
+        integer(chunk.decoded_bytes, 1, Math.min(resultLimit, 184320));
         if (typeof chunk.data !== 'string' || chunk.data.length > 245760
           || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(chunk.data)) reject();
         const decoded = atob(chunk.data);
         if (decoded.length !== chunk.decoded_bytes || btoa(decoded) !== chunk.data) reject();
+        if (kind === 'session_check') {
+          // Session results must fit one bounded chunk and contain only the
+          // configured identity/context outcome, before any native forwarding.
+          let outcome;
+          let serialized;
+          try {
+            const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+            serialized = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+            outcome = JSON.parse(serialized);
+          } catch { reject(); }
+          keys(outcome, ['principal_id', 'context_id']);
+          if (outcome.principal_id !== binding.principal_id || outcome.context_id !== binding.context_id) reject();
+          // Do not forward hidden duplicate keys or discarded JSON bytes just
+          // because the parsed object happens to have the expected identity.
+          if (serialized !== JSON.stringify(outcome)) reject();
+        }
         bytes += chunk.decoded_bytes;
         if (bytes > result.raw_bytes) reject();
         const ack = await send('result_chunk', { sequence, decoded_bytes: chunk.decoded_bytes, data: chunk.data }, fence);
@@ -244,7 +270,7 @@ export async function runProbe({ request, page, browserInstanceId, binding,
       keys(released, ['ok']);
       if (released.ok !== true) reject();
     }
-    return { state: 'probe_complete', receipts };
+    return { state: sessionOnly ? 'session_check_complete' : 'probe_complete', receipts };
   } catch (error) {
     // Chrome/fetch/transport exceptions may contain private page or path text.
     if (error instanceof ProbeClientError) throw error;

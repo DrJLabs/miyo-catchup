@@ -21,7 +21,12 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
 - `extension/probe-client.mjs`: sequential protocol-v1 control flow for one
   session check and one pinned body; each waits for its durable dispatch ACK.
   At most one chunk is awaiting acknowledgement. Lost transport/ACK stops the
-  flow; it cannot reconnect, refetch, enumerate a catalog, or publish.
+  flow; it cannot reconnect, refetch, enumerate a catalog, or publish. The separate
+  `runSessionCheck` entry advertises/claims only a session check and stops after
+  its durable receipt with `session_check_complete`, never `probe_complete`.
+  Both paths reject oversized, multi-chunk, noncanonical or extra-field session
+  outcomes before native forwarding; only the exact configured identity/context
+  outcome may cross that boundary.
 - `extension/manifest.json`, `background.mjs`, `probe-controller.mjs` and popup:
   minimal MV3 qualification package, exact internal-popup sender, explicit Start
   gesture, closed private configuration and persistent one-attempt fence. Startup
@@ -53,11 +58,18 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
   timeout/port loss aborts cooperatively and fences the listener against new
   clients. It is not proof of rollback or a way to preempt arbitrary local code.
 - `src/probe-receiver.mjs`: one-probe private staging and durable receipt
-  harness, with explicit roots, binding, selected conversation, body validator,
-  and caller-held ownership. It is not the T03 coordinator or a running socket
+  harness, with explicit roots, binding, selected conversation and caller-held
+  ownership; conversation scope also requires an injected body validator.
+  It is not the T03 coordinator or a running socket
   service. A failed/uncertain probe cannot reset into another attempt, including
   after the persisted Retry-After deadline. Monotonic/boot discontinuities block
   new dispatch; stored success receipts must still have matching private bytes.
+  Construction scope defaults to `conversation`; explicit `session-only` pins a
+  narrower private root and refuses body work, including post-session claims,
+  permits and dispatches. Scope cannot be changed on reopening that root.
+  The session-only binding hash also prevents older conversation-only code from
+  reopening it. Session-only scope needs no body validator and ignores any
+  supplied callback.
 
 Session transfer contains only `{principal_id, context_id}` after page-side
 validation. Conversation bytes are transferred with their original UTF-8 digest,
@@ -103,6 +115,17 @@ Temporary-root trust exceptions and injected validators are test/harness code,
 never caller-selectable wire options.
 
 ## Remaining A2 gate
+
+The source-only session qualification slice is not wired into the installed popup
+and ships no real ChatGPT adapter. It does not infer a context ID from a display
+label or configuration. Before assembling its private package, establish the
+current session response fields/content type, a reliable observed effective
+workspace/context source, and the read-only principal-to-Miyo-account mapping.
+The local connection pass and visible personal-account UI are not substitutes.
+Session-only completion means a sanitized session receipt, not body capture,
+validated Miyo mapping, or completion of T02. A later body proof requires a
+separately scoped private root and the reviewed session/body adapter; a session-only
+root must never be promoted or reset into it.
 
 Before a live proof:
 

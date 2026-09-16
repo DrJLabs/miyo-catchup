@@ -26,6 +26,13 @@ capture fence is changed. Its result is not a capture success or a persistent
 worker-health claim. Opening the popup does not run this check automatically.
 The canonical checkpoint records private packaging and pairing progress.
 
+The source-only `runSessionCheck` path uses the same permitted protocol flow but
+advertises only session/chunking capabilities, commits one sanitized session
+receipt, and stops with `session_check_complete`. It never claims body work.
+This is not yet wired into the installed popup or backed by a live adapter.
+Both clients bound session outcomes to one 16 KiB chunk and reject unexpected
+identity/context fields or discarded JSON bytes before native forwarding.
+
 See [plan section 4](../docs/implementation-plan.md) for minimum permissions,
 credential isolation, owned-tab lifecycle and transport bounds. Start with the
 T02 proof after the T01 contracts, not a broad extension framework. The

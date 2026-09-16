@@ -22,9 +22,15 @@ is recorded only in the canonical implementation checkpoint.
   clients do not claim durable worker ownership. Paths are explicit and there
   is no host-triggered worker launch.
 - `probe-receiver.mjs`: bounded session/body staging with durable ACKs. Explicit
-  roots, identity, selected ID, body validator and caller-held ownership are
-  required. It cannot collect a catalog, publish, reset a failed attempt, or
+  roots, identity, selected ID and caller-held ownership are required; a body
+  validator is also required for conversation scope. It cannot collect a catalog,
+  publish, reset a failed attempt, or
   claim production readiness. See [T02 qualification](../docs/t02-qualification.md).
+  Its optional construction scope `session-only` durably forbids body work in
+  that private root; default `conversation` preserves the existing full-probe
+  path. Session completion is not probe completion, and changing scope requires
+  a different explicitly scoped root, never resetting existing evidence.
+  Session-only scope needs no body validator and ignores any supplied callback.
 - `connection-check.mjs` and `connection-check-entry.mjs`: local-only global status
   endpoint and a ten-minute foreground launcher under kernel-verified `flock`.
   It reuses explicit native-host configuration, has no capture/database/identity

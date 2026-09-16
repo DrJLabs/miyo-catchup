@@ -7,7 +7,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import vm from 'node:vm';
 import { pageCollector } from '../extension/page-collector.mjs';
-import { createNativeClient, runProbe } from '../extension/probe-client.mjs';
+import { createNativeClient, runProbe, runSessionCheck } from '../extension/probe-client.mjs';
 import { assertReply, assertRequest } from '../src/contracts.mjs';
 import { encodeNativeMessage, NativeFrameDecoder } from '../src/framing.mjs';
 import { runNativeHost } from '../src/native-host.mjs';
@@ -21,7 +21,7 @@ function event() {
     emit: (value) => { for (const fn of listeners) fn(value); } };
 }
 
-test('T02 vertical synthetic proof: fixed page -> native frames -> Unix socket -> durable private bytes', async (t) => {
+async function runVerticalProof(t, scope) {
   const root = temporaryRoot(t);
   const clock = new FakeClock();
   const binding = { binding_id: 'synthetic-binding', principal_id: 'synthetic-principal',
@@ -78,7 +78,7 @@ test('T02 vertical synthetic proof: fixed page -> native frames -> Unix socket -
     binding: { principal_id: binding.principal_id, context_id: binding.context_id },
     conversation_id: conversationId, qualification: { adapter_id: 'synthetic-v1' } })).ok, true);
   const receiver = createProbeReceiver({ root, trustedBoundary: root, binding,
-    conversationId, clock, ownership: () => true, // synthetic caller-held lock attestation
+    conversationId, clock, scope, ownership: () => true, // synthetic caller-held lock attestation
     validateBody: (parsed, expected) => parsed.conversation?.id === expected && typeof parsed.text === 'string' });
   t.after(() => receiver.close());
   const socketRoot = mkdtempSync(join(tmpdir(), 'miyo-t02-vertical-'));
@@ -124,22 +124,38 @@ test('T02 vertical synthetic proof: fixed page -> native frames -> Unix socket -
     decoder.finish();
   })();
   closeHost = async () => { client.close(); await host; output.end(); await replies; };
-  const result = await runProbe({ request: (message) => client.request(message),
+  const run = scope === 'session-only' ? runSessionCheck : runProbe;
+  const result = await run({ request: (message) => client.request(message),
     page: { documentId: 'synthetic-document', call: callPage }, browserInstanceId: randomUUID(),
     binding: { principal_id: binding.principal_id, context_id: binding.context_id }, conversationId,
     wait: async (ms) => clock.advance(ms), persistFailure: async () => assert.fail('unexpected failure receipt') });
-  assert.equal(result.state, 'probe_complete');
-  assert.equal(receiver.snapshot().probe_complete, true);
+  assert.equal(result.state, scope === 'session-only' ? 'session_check_complete' : 'probe_complete');
+  assert.equal(receiver.snapshot().probe_complete, scope === 'conversation');
   assert.equal(receiver.snapshot().catalog_complete, false);
   assert.equal(receiver.snapshot().verified, false);
-  const receipt = result.receipts[1];
-  assert.equal(receipt.sha256, createHash('sha256').update(body).digest('hex'));
-  assert.deepEqual(readFileSync(join(root, 'artifacts', `${receipt.artifact_id}.json`)), body);
-  assert.deepEqual(calls, [{ path: '/api/auth/session', method: 'GET' },
-    { path: '/backend-api/conversations/batch', method: 'POST' }]);
+  if (scope === 'conversation') {
+    const receipt = result.receipts[1];
+    assert.equal(receipt.sha256, createHash('sha256').update(body).digest('hex'));
+    assert.deepEqual(readFileSync(join(root, 'artifacts', `${receipt.artifact_id}.json`)), body);
+    assert.deepEqual(calls, [{ path: '/api/auth/session', method: 'GET' },
+      { path: '/backend-api/conversations/batch', method: 'POST' }]);
+  } else {
+    assert.equal(result.receipts.length, 1);
+    const sanitized = Buffer.from(JSON.stringify({ principal_id: binding.principal_id, context_id: binding.context_id }));
+    assert.equal(result.receipts[0].sha256, createHash('sha256').update(sanitized).digest('hex'));
+    assert.equal(result.receipts[0].raw_bytes, sanitized.length);
+    assert.deepEqual(calls, [{ path: '/api/auth/session', method: 'GET' }]);
+    assert.equal(wire.filter((message) => JSON.parse(message).operation === 'request_permit').length, 1);
+    assert.equal((await callPage({ operation: 'release' })).ok, false);
+  }
   for (const serialized of [...wire, ...boundaryReplies]) {
     assert.ok(Buffer.byteLength(serialized) <= 262144);
     assert.ok(!serialized.includes(tokenSentinel));
     assert.ok(!serialized.includes(cookieSentinel));
   }
-});
+}
+
+for (const scope of ['conversation', 'session-only']) {
+  test(`T02 ${scope} vertical synthetic proof: fixed page -> native frames -> Unix socket -> durable private bytes`,
+    (t) => runVerticalProof(t, scope));
+}
