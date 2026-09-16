@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Miyo ChatGPT Catch-up (qualification)",
+  "version": "0.0.0",
+  "description": "Explicitly paired, bounded ChatGPT probe for private qualification staging.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "nativeMessaging",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "background.mjs",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Miyo ChatGPT qualification",
+    "default_popup": "popup.html"
+  },
+  "minimum_chrome_version": "106"
+}

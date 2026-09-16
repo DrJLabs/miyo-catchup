@@ -3,11 +3,17 @@
 Daily and on-demand ChatGPT catch-up into native Miyo Chats, with Miyo's native
 ChatGPT sync left disconnected.
 
-**Status: T01 offline foundations.** Versioned contracts, bounded native framing,
+**Status: T01 complete offline; T02 live qualification pending.** Versioned contracts, bounded native framing,
 private-path validation and SQLite/process-ownership qualification are
-implemented and tested. There is no working extension, collector, CLI, installer or
-background service yet. Nothing in this repository currently contacts ChatGPT
-or changes Miyo data.
+implemented and tested. T02 adds an MV3 qualification package,
+native-host entry point and private-socket/staging modules, not a live-qualified
+extension or service. Real ChatGPT adapters
+remain fail-closed. Loading the private handoff package is operator-confirmed,
+not a completed browser proof. A private status-only native host/foreground
+endpoint is prepared; an operator screenshot confirms the Chrome-to-native
+local-status check passed with capture disabled. Authenticated capture remains
+pending. No Miyo data change has been performed.
+See the [T02 qualification boundary](docs/t02-qualification.md).
 
 This is an independent integration project, not an official Miyo or OpenAI product.
 
@@ -54,20 +60,20 @@ and remaining gates in the [implementation checkpoint](docs/implementation-plan.
 ## Layout
 
 ```text
-extension/       Chrome extension boundary (reserved)
-src/             Offline contracts, framing, safe paths and runtime primitives
+extension/       Qualification package source; real-page capture disabled
+src/             Offline foundations, native entry/socket and private probe receiver
 adapters/        Version-qualified integration adapters (reserved)
 schemas/         Version 1 protocol/configuration/status/receipt contracts
 tests/           Offline contract and runtime tests; synthetic fixtures only
 systemd/         Future user service/timer templates (reserved)
-install/         Future explicit installation helpers (reserved)
+install/         Pure pinned-launcher renderer; no automatic installation
 scripts/         Working repository validation tools
 docs/            Canonical specification and supporting documentation
 ```
 
-Reserved runtime directories retain ownership READMEs. T01 is the first
-implementation stage; the next gate is T02's explicitly paired, one-conversation
-browser-to-local proof. The full coordinator/importer follows that proof.
+Reserved runtime directories retain ownership READMEs. T02's explicitly paired,
+one-conversation browser-to-local proof remains the next gate; synthetic tests
+do not close it. The full coordinator/importer follows that proof.
 
 ## Licensing
 

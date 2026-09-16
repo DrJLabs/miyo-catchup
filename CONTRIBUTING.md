@@ -1,7 +1,7 @@
 # Contributing
 
-This repository contains offline T01 foundations and a specification, not a
-released service. Read [AGENTS.md](AGENTS.md) and the
+This repository contains offline T01 foundations and source-only T02 probe
+modules, not a released service. Read [AGENTS.md](AGENTS.md) and the
 [implementation plan](docs/implementation-plan.md) before making changes.
 
 1. Identify the task and applicable requirement/acceptance IDs.

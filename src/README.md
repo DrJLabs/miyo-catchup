@@ -1,8 +1,10 @@
 # Local runtime foundations
 
 The [implementation plan](../docs/implementation-plan.md) is authoritative.
-T01 provides reusable offline primitives; no working CLI, coordinator, native
-host, collector or importer is included yet.
+T01 provides reusable offline primitives. T02 adds native transport/entry,
+an explicit private socket and a single-probe receiver; no working capture CLI,
+full coordinator, importer or running service is included. Private pairing state
+is recorded only in the canonical implementation checkpoint.
 
 - `contracts.mjs` and `config.mjs`: strict version 1 boundaries and fixed limits.
 - `framing.mjs`: native-endian length framing, bounded JSON/UTF-8 validation and
@@ -10,13 +12,30 @@ host, collector or importer is included yet.
 - `safe-paths.mjs`: ownership, type, mode, traversal and link checks.
 - `sqlite.mjs`: isolated durable database/transaction/backup primitives.
 - `ownership.mjs`: OS `flock` ownership across the spawned process lifetime.
+- `native-host.mjs`: exact-origin native framing/forwarding through an injected
+  connector; manifest generation is pure and registers nothing.
+- `native-host-entry.mjs`: pinned-runtime entry point and bounded private local
+  transport configuration; stdout carries frames only. See the
+  [launcher boundary](../install/README.md).
+- `probe-socket.mjs`: one active private Unix-socket connection, bounded frames
+  and deadlines, no reconnect. Only the server caller holds the OS lock; native
+  clients do not claim durable worker ownership. Paths are explicit and there
+  is no host-triggered worker launch.
+- `probe-receiver.mjs`: bounded session/body staging with durable ACKs. Explicit
+  roots, identity, selected ID, body validator and caller-held ownership are
+  required. It cannot collect a catalog, publish, reset a failed attempt, or
+  claim production readiness. See [T02 qualification](../docs/t02-qualification.md).
+- `connection-check.mjs` and `connection-check-entry.mjs`: local-only global status
+  endpoint and a ten-minute foreground launcher under kernel-verified `flock`.
+  It reuses explicit native-host configuration, has no capture/database/identity
+  implementation, and blocks all operations other than global `get_status`.
 
 Framing validates before handing a message to a consumer. Callers must pass a
 validator that **throws** on rejection. Consume input sequentially using
 `await decoder.consume(chunk, accept)` and call `finish()` at EOF; do not use
 an asynchronous stream `data` handler that can queue unlimited input. The
-consumer is awaited before the next frame is decoded. These helpers neither
-write stdout nor connect to a browser or socket.
+consumer is awaited before the next frame is decoded. Importing the reusable
+helpers does not start a listener or browser; explicit transport calls do I/O.
 The 262,144-byte serialized-message limit includes all JSON envelope fields;
 Chrome's native length prefix adds four framing bytes. Response artifacts use
 their original raw-byte digest, never a parsed/re-serialized JSON digest.

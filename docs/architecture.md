@@ -1,8 +1,9 @@
 # Architecture
 
-This describes the target design. T01 implements only the shared contracts,
-framing and local safety/durability foundations; the runtime flow below remains
-unimplemented. The
+This describes the target design. T01 implements the shared contracts,
+framing and local safety/durability foundations. T02 source modules exercise
+the page/native/private-staging boundaries with synthetic inputs; the installed
+runtime flow below remains unqualified and the larger worker/importer absent. The
 [implementation plan](implementation-plan.md) owns the detailed contract.
 
 ```text

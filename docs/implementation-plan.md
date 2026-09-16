@@ -780,6 +780,129 @@ explicitly selected conversation under A2. Its source can be prepared offline;
 pairing and authenticated capture need that scope. T03–T06 remain sequenced after
 successful browser feasibility. Keep one progress record here.
 
+**T02 continuation — not live-qualified, not closed:** the operator authorized proceeding
+to T02 and then its remainder. Offline modules cover the fixed page collector, owned-document bridge,
+sequential probe client, exact-origin native framing/forwarding and a private
+single-probe staging receiver. These preserve protocol version 1 and do not add
+dependencies, an HTTP listener, catalog work, publication, services or scheduling.
+The receiver is an injected qualification harness, not the full T03 coordinator;
+the caller must hold process ownership and supply explicit private roots and a
+qualified body validator. Failed or uncertain attempts cannot be reset/refetched.
+
+Initial T02 validation on Node 22.23.2/Linux passed 110 tests, including
+the original 62 T01 tests, under CI-like umask 0022; repository and diff checks
+passed. A synthetic vertical test runs the actual serialized collector through
+native framing into SQLite-backed private staging, verifies exact body bytes and
+SHA-256, and checks token/cookie sentinels never cross the page boundary. Added
+negative cases cover lost ACK/ports/documents, retained chunk replay, bounded
+streaming and JSON preflight, stalled fetch/read timeout, conflicting receipts,
+missing-artifact replay, clock/boot changes and persistent Retry-After deadlines.
+An injected SQLite receipt failure after artifact fsync preserves the orphan,
+returns no success ACK and prevents continued writes until restart/review.
+These are synthetic T02 portions of AC01, AC02, AC06 and AC13, not completed live
+ACs, full T03 lifecycle qualification or a deployment-filesystem/power-loss proof.
+
+The continuation adds an uninstalled MV3 qualification package with an explicit
+popup/controller, persistent single-attempt start fences, a pinned native entry
+and pure launcher renderer, and a bounded private Unix-socket transport. The
+native host does not claim the worker lock or launch a worker. A synthetic
+cross-process test composes the real native entry, socket and SQLite receiver
+under OS `flock`, rejects a competing process without removing its socket, and
+checks crash/restart ownership. No production configuration or pairing key is
+shipped; no new permissions beyond section 4.1 or dependencies were introduced.
+
+Continuation validation on Node 22.23.2/Linux: all 139 offline tests passed,
+including the large synthetic page-to-native-to-Unix-socket-to-staging digest
+test and the cross-process ownership test. Repository and diff checks passed.
+Review corrections covered the native-client/server ownership boundary, stale
+popup state without a start fence, socket path truncation limits, frame-prefix
+headroom, lost-port deadlines, server reply IDs, cooperative receiver cancellation
+with listener fencing, escaped source patterns and safe socket close. Popup structure/controller
+tests are not visual, keyboard or real-Chrome qualification. No extension was
+loaded, native host registered, ChatGPT request made, Miyo data changed, service
+started, timer enabled, or commit/push performed during that offline validation.
+
+Only a reserved-origin synthetic adapter is present. Real ChatGPT initialization
+fails closed: principal-to-Miyo mapping, observed workspace/context and the actual
+session/body contract are still unqualified. Read-only retained-helper inspection
+confirmed the historical token/principal fields and request route, but no active
+workspace check; parsed recovery wrappers are not raw HTTP/schema qualification.
+There is no capture-capable installed release, running service or live capture proof.
+Browser ownership records survive interruption without adopting or closing old
+tabs; qualification tab cleanup is deliberately operator-owned. The operator has
+now privately selected one conversation and the existing signed-in profile;
+profile metadata and connected-browser inventory were checked without reading
+authentication material. Those identifiers remain outside this public record.
+The browser automation surface blocks extension management and prohibits
+workarounds, so extension loading requires an operator-performed manual handoff.
+A private owner-only unpacked handoff artifact has now been prepared from the
+nine extension files, with a locally generated public manifest key for stable
+extension identity. Readback verified source equality except that key, module
+syntax, exact file inventory and safe ancestor permissions. It remains
+capture-disabled and is not a selected production release. The operator now
+reports the handoff package loaded and enabled in Chrome, and supplied a
+screenshot showing the expected unconfigured popup and disabled Start control.
+This verifies the displayed disabled state, not the native transport or capture.
+Preparing the original handoff artifact made no authenticated requests and did
+not register a native host.
+
+**T02 local connection checkpoint:** an explicit popup connection check and a
+separate foreground status-only endpoint now use existing protocol-v1 global
+`get_status`; no protocol schema, dependency or permission was added. The check
+does not read/write capture configuration or fences, create a page, fetch
+upstream, grant leases/permits, or enable Start. The endpoint reports zero
+upstream budgets, blocks all other operations, verifies inherited kernel flock
+ownership and expires after ten minutes. A passing check is historical evidence
+of that local round trip, never capture completion or ongoing worker health.
+
+All 156 offline tests passed on Node 22.23.2/Linux; repository and diff checks
+passed. Review corrections reject invalid calendar timestamps, discard cached
+popup completion when configuration disappears without clearing the fence, and
+bound ownership-loss shutdown. The operator-loaded package was updated in place
+with its public manifest key unchanged; its original nine files were preserved
+outside the loaded directory. A separate owner-only private snapshot/configuration
+and exact-origin custom native-host registration were prepared and read back.
+Full safe ancestor checks and source equality passed; the stock Miyo host's digest
+was unchanged. A direct local native-launcher round trip, foreign-origin rejection
+and competing-owner/socket-preservation check passed. These did not use Chrome.
+
+The operator's next screenshot confirms the updated popup loaded and its explicit
+**Check local connection** action reported unavailable, with Start still disabled.
+Follow-up inspection found no receiver process, listening socket or lock owner;
+the leftover socket was not evidence of a live endpoint. The prior command session
+was unavailable, but its termination cause was not established. An explicit
+foreground restart under the existing lock checks restored the listener, and
+the direct native-launcher round trip again passed the popup's reply validator.
+The operator then supplied a screenshot of **Local connection check passed.
+Capture is still disabled.** while the foreground session was kept open. This
+is operator-supplied live Chrome-to-native status evidence, not authenticated
+account/workspace, session/body, or private-staging qualification. Start remained
+disabled. The receiver was subsequently stopped; no ongoing liveness is claimed.
+Read-only inspection of the operator-selected conversation's profile menu also
+showed the requested account and a selected personal-account context. The menu
+was dismissed without switching accounts or changing settings. This is visible
+UI evidence only: it does not establish a current session principal, effective
+request context, Miyo mapping or session/body response contract. No private UI
+content or account identifiers were copied into the repository.
+
+Stopping through a terminal exposed duplicate-signal shutdown interruption and
+a leftover socket. Two new regression tests reproduced the failure before the
+source correction: handlers now remain installed through cleanup/child exit and
+the launcher forwards only the first signal. All 158 offline tests passed after
+the fix. The original private snapshot remains unchanged; the shutdown fix is
+source-tested, not yet packaged or browser-tested. A locked-owner restart followed
+by a single directed termination cleaned up the exact stale socket and left no
+receiver running. The check is not a service, and termination or expiry requires
+an explicit restart rather than an automatic background worker. No authenticated
+request, conversation capture, Miyo write, timer activation, commit or push was
+performed. Browser automation was not used to bypass extension-management policy.
+Current context and compatibility evidence must be qualified before authenticated body dispatch;
+configured principal/context equality is not a substitute. Pairing must use a
+private reviewed release with safe ancestors, not relaxed checkout path checks.
+See [T02 qualification boundary](t02-qualification.md) for implemented interfaces,
+official API references and the remaining proof. The T02 checkbox above remains
+open; `probe_complete` is not catalog or verified-run completion.
+
 ## 14. Evidence and primary references
 
 The L-series labels preserve traceability to the original design observations.

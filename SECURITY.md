@@ -1,6 +1,7 @@
 # Security and private data
 
-The project is pre-implementation; no release is qualified for production use.
+The project has offline foundations and source-only T02 probe modules; no release
+is qualified for production use.
 
 Do not put vulnerabilities involving credentials or private data into public
 issues. Use GitHub private vulnerability reporting if it is available for the

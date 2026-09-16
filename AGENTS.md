@@ -7,9 +7,15 @@
 - Read `README.md` and the relevant sections of
   `docs/implementation-plan.md` before implementation. The plan's R01–R16,
   invariants, and AC01–AC16 are the acceptance baseline.
-- Current stage: T01 offline foundations. Contracts, framing, path safety and
-  isolated durability tests are source-level work; no collector, extension,
-  importer, CLI or service is implemented or installed. Follow the canonical
+- Current stage: T01 foundations plus T02 qualification packaging and a
+  capture-disabled local connection check.
+  Synthetic page/native/private-staging tests do not qualify real Chrome.
+  The operator supplied a screenshot of the expected disabled MV3 popup.
+  A private status-only native host is registered; an operator screenshot confirms
+  a successful Chrome-to-native local-status check with capture still disabled.
+  No live adapter, importer, capture CLI or service is
+  installed or live-qualified.
+  Follow the canonical
   checkpoint for verified coverage and outstanding qualification gates.
 - Machine-specific operations and historical recovery evidence remain outside
   this repository. Never import private artifacts merely to make a test pass.
