@@ -1,0 +1,19 @@
+{
+  "name": "miyo-catchup",
+  "version": "0.0.0",
+  "description": "Scaffold for sync-off ChatGPT capture into native Miyo Chats",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.23.2 <23"
+  },
+  "scripts": {
+    "check": "node scripts/check-repository.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DrJLabs/miyo-catchup.git"
+  }
+}
