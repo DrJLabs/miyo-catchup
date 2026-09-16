@@ -70,3 +70,11 @@ test('an incomplete scaffold returns required-file diagnostics', (t) => {
   assert.ok(errors.length > 0);
   assert.ok(errors.every((error) => error.startsWith('Missing regular repository file:')));
 });
+
+test('saved tool truncation is rejected even when requirement IDs remain intact', (t) => {
+  const { root, path } = fixture(t);
+  for (const text of ['Warning: truncated output (original token count: 100)\n',
+    'Total output lines: 753\n', 'start…1895 tokens truncated…end\n']) {
+    assert.match(checkMarkdown(root, path, text).join('\n'), /tool truncation marker/);
+  }
+});

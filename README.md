@@ -3,9 +3,11 @@
 Daily and on-demand ChatGPT catch-up into native Miyo Chats, with Miyo's native
 ChatGPT sync left disconnected.
 
-**Status: specification and project scaffold.** There is no working extension,
-collector, CLI, installer, or background service yet. Nothing in this repository
-currently contacts ChatGPT or changes Miyo data.
+**Status: T01 offline foundations.** Versioned contracts, bounded native framing,
+private-path validation and SQLite/process-ownership qualification are
+implemented and tested. There is no working extension, collector, CLI, installer or
+background service yet. Nothing in this repository currently contacts ChatGPT
+or changes Miyo data.
 
 This is an independent integration project, not an official Miyo or OpenAI product.
 
@@ -33,7 +35,7 @@ Miyo adapter require explicit compatibility qualification.
 
 ## Development checks
 
-Use Node **22.23.2** (pinned in `.nvmrc`). The scaffold has no package dependencies
+Use Node **22.23.2** (pinned in `.nvmrc`). The project has no package dependencies
 and needs no `npm install`:
 
 ```bash
@@ -41,28 +43,31 @@ npm run check
 npm test
 ```
 
-These validate the repository structure, documentation links, and scaffold
-metadata. They do **not** validate authenticated capture, native import, Chrome
-permissions, SQLite crash durability, or production scheduling. CI runs the same
-offline checks on public source only.
+These validate repository structure and documentation plus the implemented T01
+contracts and runtime primitives using synthetic data and isolated temporary
+files. Process tests exercise SQLite crashes/backups and OS lock ownership;
+they do **not** qualify power loss, the eventual deployment filesystem,
+authenticated Chrome capture, native Miyo import or production scheduling.
+CI runs the same offline checks on public source only. See the test coverage
+and remaining gates in the [implementation checkpoint](docs/implementation-plan.md#definition-of-done-and-current-checkpoint).
 
 ## Layout
 
 ```text
 extension/       Chrome extension boundary (reserved)
-src/             Local worker, CLI and bridge boundary (reserved)
+src/             Offline contracts, framing, safe paths and runtime primitives
 adapters/        Version-qualified integration adapters (reserved)
-schemas/         Protocol/configuration/receipt schemas (reserved)
-tests/           Scaffold tests and synthetic-fixture policy
+schemas/         Version 1 protocol/configuration/status/receipt contracts
+tests/           Offline contract and runtime tests; synthetic fixtures only
 systemd/         Future user service/timer templates (reserved)
 install/         Future explicit installation helpers (reserved)
 scripts/         Working repository validation tools
 docs/            Canonical specification and supporting documentation
 ```
 
-Each reserved directory has an ownership README rather than a misleading dummy
-implementation. The first runtime task is T01 in the implementation plan,
-followed by the smallest authorized T02 browser-to-local proof.
+Reserved runtime directories retain ownership READMEs. T01 is the first
+implementation stage; the next gate is T02's explicitly paired, one-conversation
+browser-to-local proof. The full coordinator/importer follows that proof.
 
 ## Licensing
 

@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 21895)
-Total output lines: 753
-
 # miyo-catchup: implementation specification and delivery plan (v2)
 
 ## Document control and execution authority
@@ -12,6 +9,7 @@ Total output lines: 753
 - **Canonical repository:** [DrJLabs/miyo-catchup](https://github.com/DrJLabs/miyo-catchup).
 - **Implementation destination:** this standalone repository; extension, worker and contracts share one release boundary.
 - **Bootstrap authorization:** create this scaffold, transfer public-safe specifications, initialize Git, and publish the initial public repository. This does not authorize functional collector/worker implementation, installation, native-host registration, service activation, browser capture, or live archive mutation.
+- **Implementation authorization:** the operator subsequently authorized implementation. The current source/test work is A1; browser pairing/capture, live import, installation and activation retain their A2–A5 gates below.
 - **Authority on adoption:** this is the canonical plan for future implementation. It supersedes conflicting wording in the operator drafts without changing their historical records. Old runbooks are evidence, not permission to reconnect native sync.
 
 **Recommended direction:** retain the separate Chrome extension plus a durable local worker. Do not wrap the interactive recovery script in a timer, fork Miyo Capture, introduce an HTTP listener, or add an orchestration framework.
@@ -355,7 +353,80 @@ Normalize remote timestamps as `floor(seconds * 1000)` and stored ISO timestamps
 |---|---|---|
 | No manifest row/file at canonical target | Remote item | Select `new` |
 | Same bound row; file exists | Remote timestamp newer | Select `updated` |
-| Same bound row; file missing | Remote item | Select `missing_body`, but never lowe…1895 tokens truncated…ceipts, never the historical recovery receipts or Miyo's index. `doctor` performs read-only checks without creating a job, pairing, repair or upstream request.
+| Same bound row; file missing | Remote item | Select `missing_body`, but never lower the stored version |
+| Same bound row; known committed digest or metadata baseline consistent | Remote timestamp not newer | Count `unchanged`; no body request, no file rewrite |
+| Known owned digest changed locally | Any | `local_conflict`, not silent recapture |
+| Existing `(platform, conversation_id)` belongs to another/blank account | Any | `account_mismatch`; no reassignment or merge |
+| Local row absent from catalog | None | Preserve it; report outside this scan's exposed set |
+
+Timestamp-based incrementality assumes the endpoint advances `update_time` for content changes. It cannot detect an upstream same-timestamp edit; disclose this limitation. Do not silently add a recurring full-body audit to compensate.
+
+Bootstrap reads current manifest/files as a **local metadata baseline**, not a proof of remote completeness. Record provenance `baseline_unverified` unless supported by exact current receipts. Existing recovery evidence may be adopted only after revalidation; never copy its completed flags. Unchanged baseline entries do not become newly verified corpus entries merely because they were listed again.
+
+### 6.4 Body and content checks
+
+One body request contains at most five selected IDs. The returned set must match exactly: no omission, duplication, extra ID or cross-account/context change. Require the qualified mapping/current-node shape and a sufficient version. Deletion/permission changes after listing or zero importable content block that item; they are not silently counted as success. A future explicitly specified tombstone/empty-chat policy would be a separate change.
+
+Persist raw data privately before rendering. Preserve qualified branch traversal, roles, deep-research text, timestamps, frontmatter, attachment references and existing local attachment links; do not fetch attachment binaries. Use deterministic rendering from the qualified adapter. Same input/version/adapter must produce identical bytes irrespective of wall time, run ID, locale or process restart.
+
+Keep existing filename and project assignment even if title/project changes remotely. New chats use the qualified date/title/ID naming function and a known safe project mapping. Unknown projects receive an ID-derived safe relative directory; default chats stay in the native root. Do not update `chat_sync.json` to create mappings. Validate Unicode, byte-length limits and collisions; never silently overwrite or truncate content/names into a collision.
+
+Identical rendered bytes produce `byte_noop`: preserve file/inode/mtime and existing indexing generation. Update only necessary same-owner manifest fields through the journal/CAS rule and worker provenance. Record timestamp-only/metadata-only changes separately from new-message claims.
+
+## 7. Durable state, statuses, and compatibility
+
+### 7.1 Minimum logical records
+
+Use one private SQLite DB owned by the worker; no second state coordinator. Use explicit transactions, bound parameters, foreign keys and durable synchronous commits. Qualify crash recovery on the actual filesystem. Worker WAL settings may be chosen/tested for its own DB; do not change live Miyo PRAGMAs/journal mode or run its migrations.
+
+| Record | Required identity and content |
+|---|---|
+| `binding` / configuration | One active principal/context; pinned roots, versions/fingerprints and config version |
+| `jobs` | Run UUID, immutable mode, trigger/coalescing, stage, blockers, pause flag, current attempt and terminal receipt |
+| `account_gate` | Cooldown, next dispatch, attempt history, last wall/boot observation, active permit and lease generation |
+| `attempts` | Attempt UUID, run, counters, accumulated active time, catalog generation/start/end and stop reason |
+| `requests` | Unique permit/request IDs, logical work ID, bound generation/document, arguments digest, dispatch and outcome |
+| `catalog_items` / page receipts | `(run, generation, conversation ID)` newest observed timestamp; page artifact/cursor chain |
+| `artifacts` / selected items | Owned path, digest/size, identity/version, renderer fingerprint and stage |
+| `publication_journal` | Unique `(run, conversation, target version/digest)` intent, old/new row/file fingerprints, durable backup/stage refs and recovery status |
+| `verification_receipts` | Exact file version/generation, manifest/index/vector/search evidence, checked-at and compatibility fingerprint |
+
+Names/table splitting are advisory; uniqueness and transactional semantics are binding. Keep bulky content out of SQLite where a private artifact reference suffices. Never add credentials, raw authentication responses, arbitrary SQL, or executable page content.
+
+Unknown worker-state version: open read-only for diagnosis and block work. Initial installation creates schema version 1 only in the new namespace. Later migrations require a worker-stopped SQLite backup using a safe backup mechanism (not copying only a live WAL main file), tested upgrade/recovery and explicit rollback compatibility. A previous binary cannot open a newer schema for writes by guesswork.
+
+### 7.2 State transitions
+
+```text
+queued -> catalog -> downloading -> staged -> importing -> indexing
+                                                  ^          |
+                                                  +----------+  next batch, only after batch verification
+                                                             |
+                                                             v
+                                                       final_verification -> verified
+staged -> dry_run_complete   (dry_run only; no live mutation)
+```
+
+Persist a separate blocker set, primary blocker, `pause_requested`, cooldown and resume stage. Do not overwrite a cooldown merely to display `paused`. Identity/schema/path/conflict errors outrank ordinary waiting in the primary display. A no-change complete scan may pass directly to final verification and terminate `verified` with `completion_kind=no_changes`.
+
+Per selected item: selected -> downloaded -> staged -> publication-prepared -> imported -> index-metadata-current -> verified. `byte_noop` follows the applicable manifest/current-generation verification path without physical publication. Crash recovery may re-enter a prior execution stage; durable counts are recomputed from unique records, not incremented from replayed messages.
+
+For stage-order invariants, downloaded means a validated durable body is available, including explicitly qualified reused artifacts; additionally report bodies fetched in this attempt and bodies reused separately.
+
+Counters distinguish: catalog unique, selected new/updated/missing-body, downloaded bodies, staged items, physical files published, metadata rows changed, byte no-ops, indexed-metadata-current, verified selected versions, unchanged catalog items and blocked items. Invariants include `published <= staged <= downloaded <= selected` and `verified_selected <= selected`; physical publication and verified-version counts need not be equal.
+
+### 7.3 CLI/status contract
+
+```text
+miyo-chatgpt-catchup run [--dry-run] [--json]
+miyo-chatgpt-catchup status [--json]
+miyo-chatgpt-catchup pause
+miyo-chatgpt-catchup resume
+miyo-chatgpt-catchup verify [--run RUN_ID] [--json]
+miyo-chatgpt-catchup doctor [--json]
+```
+
+`run` returns acceptance/coalescing and run ID, never an indexing-completion claim. Dry-run may read upstream and store private staged data under all limits, but cannot open the Miyo manifest for writes or publish files. Mode is immutable. `verify` is local-only and may update this worker's own receipts, never the historical recovery receipts or Miyo's index. `doctor` performs read-only checks without creating a job, pairing, repair or upstream request.
 
 CLI exit codes: 0 command accepted/read succeeded; 2 invalid input/config; 3 worker unavailable; 4 request rejected by blocker/mode/authority; 5 local internal/validation failure. A `status` response reporting a blocked job is still a successful read (0). JSON contains the job status; scripts must not interpret exit 0 from `run` as task completion.
 
@@ -648,8 +719,8 @@ Implementation-complete means T01–T09 requirements and tests have evidence, th
 - [x] Original v1/v2 engineering requirements transferred into a public-safe standalone specification.
 - [x] Repository guidance, supporting documentation and non-runtime scaffold prepared.
 - [x] Specification separates required outcomes, technical contracts, tasks and acceptance evidence.
-- [ ] A1 functional implementation authorized and actual runtime source created.
-- [ ] T01 contracts/harness qualified.
+- [x] A1 functional implementation authorized and actual runtime source created.
+- [x] T01 contracts/harness qualified at the offline layer described below.
 - [ ] T02 standalone browser proof passed under A2.
 - [ ] T03/T04 durable collection and control passed.
 - [ ] T05/T06 native publication/recovery/verification passed.
@@ -658,7 +729,56 @@ Implementation-complete means T01–T09 requirements and tests have evidence, th
 - [ ] T09 complete on-demand and no-op evidence accepted.
 - [ ] T10 schedule approved, enabled and first scheduled run fully verified.
 
-**Next implementation action after authorization:** T01, then the smallest T02 proof. Do not begin by installing a timer around the old interactive recovery helpers.
+**Current checkpoint — T01:** implemented version 1 configuration, request/reply,
+status and per-request receipt contracts; fixed limits; bounded native framing;
+private-path/config validation; SQLite transaction/backup primitives; and
+process-lifetime `flock` ownership. Source lives in `src/`, four contracts in
+`schemas/`, and flat offline test suites plus synthetic helpers in `tests/`.
+No CLI, extension, collector, coordinator, importer, installer or service is
+implemented or installed by this checkpoint.
+
+Validation on Node 22.23.2 and Linux: `npm test` passed 62 tests;
+`npm run check` and `git diff --check` passed. Tests include schema-shape parity,
+identity/version/unknown-field rejection, UTF-8/frame/chunk limits, consumer
+backpressure, SQLite commit/rollback across SIGKILL, busy errors, consistent
+backup restoration, unknown-schema refusal, and competing lock owners through
+crash/restart. Safety regression tests preserve external sentinel files when
+database sidecars are hard links and reject invalid creation inputs before
+mutation. PR review added regressions for premature commit-result receipts,
+strict semantic versions, existing-directory permission preservation and
+unknown-schema checks that must not create SQLite sidecars. The schema-version
+fixture explicitly creates a private file instead of depending on the runner's
+umask. Backup destinations reject pre-existing sidecars without removing them;
+new private files set permissions through their open descriptor. All state is
+synthetic and temporary. Status validation checks indexed evidence before
+verification and consistent connected/live/stale heartbeat evidence; process
+ownership preflights the pinned `flock` executable before creating a lock file.
+SQLite still emits its
+experimental-feature warning on this pinned Node version.
+Complete WAL/SHM read-only inspection may update transient SHM coordination
+bytes; qualification observed unchanged main-database and WAL bytes, not
+byte-frozen SHM. Missing-SHM and closed-WAL unknown-version regressions prevent
+creating new sidecars during schema diagnosis.
+
+T01 contributes the schema/local-boundary cases of AC02, AC12 and AC13 plus
+foundations for R02, R11, R12, R15 and R16. It does not claim the full live ACs,
+durable coordinator/idempotency behavior, all-leg browser memory qualification,
+power-loss durability, deployment-filesystem qualification or installed Miyo
+compatibility. Chrome identity/context mapping and Miyo bundle/schema/renderer
+fingerprints remain unqualified. No upstream capture, production data access,
+native-host registration, service start or timer activation occurred.
+
+The scaffold's canonical plan contained a saved tool-output truncation that
+removed part of section 6.3 and sections 6.4–7.3. Those requirements were restored
+verbatim from the retained operator v2 draft and compared for equality; no
+private inventory was imported. Repository validation now rejects captured
+truncation markers and missing numbered plan sections. This repairs the
+transferred contract without changing its requirements.
+
+**Next gate:** T02's minimal extension/native-host/private-staging proof for one
+explicitly selected conversation under A2. Its source can be prepared offline;
+pairing and authenticated capture need that scope. T03–T06 remain sequenced after
+successful browser feasibility. Keep one progress record here.
 
 ## 14. Evidence and primary references
 
