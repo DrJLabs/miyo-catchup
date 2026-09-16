@@ -1,7 +1,7 @@
 {
   "name": "miyo-catchup",
   "version": "0.0.0",
-  "description": "Scaffold for sync-off ChatGPT capture into native Miyo Chats",
+  "description": "Offline foundations for sync-off ChatGPT capture into native Miyo Chats",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",

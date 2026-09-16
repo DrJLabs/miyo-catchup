@@ -1,6 +1,8 @@
 # Architecture
 
-This describes the target design, not implemented behavior. The
+This describes the target design. T01 implements only the shared contracts,
+framing and local safety/durability foundations; the runtime flow below remains
+unimplemented. The
 [implementation plan](implementation-plan.md) owns the detailed contract.
 
 ```text

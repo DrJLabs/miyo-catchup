@@ -29,6 +29,9 @@ function contained(root, target) {
 export function checkMarkdown(root, path, content) {
   const errors = [];
   const label = relative(root, path);
+  if (/Warning: truncated output|Total output lines: \d+|\d+ tokens truncated/.test(content)) {
+    errors.push(`${label}: captured tool truncation marker; restore the complete source`);
+  }
   let fence = null;
   const prose = [];
   for (const [index, line] of content.split('\n').entries()) {
@@ -88,7 +91,7 @@ export function checkRepository(root = repositoryRoot) {
     const nodeVersion = readFileSync(resolve(root, '.nvmrc'), 'utf8').trim();
     if (pkg.name !== 'miyo-catchup' || pkg.type !== 'module'
       || pkg.private !== true || pkg.license !== 'UNLICENSED') {
-      errors.push('package.json: unexpected scaffold identity or publication policy');
+      errors.push('package.json: unexpected package identity or publication policy');
     }
     if (nodeVersion !== '22.23.2' || pkg.engines?.node !== '>=22.23.2 <23') {
       errors.push('Node version pin and package engine must match the qualified baseline');
@@ -98,7 +101,7 @@ export function checkRepository(root = repositoryRoot) {
       errors.push('package.json: documented check/test commands are missing');
     }
   } catch (error) {
-    errors.push(`Invalid scaffold metadata: ${error.message}`);
+    errors.push(`Invalid package metadata: ${error.message}`);
   }
 
   function walk(directory) {
@@ -117,6 +120,11 @@ export function checkRepository(root = repositoryRoot) {
   walk(root);
 
   const plan = readFileSync(resolve(root, 'docs/implementation-plan.md'), 'utf8');
+  for (let number = 1; number <= 14; number += 1) {
+    if (!new RegExp(`^## ${number}\\. `, 'm').test(plan)) {
+      errors.push(`Plan is missing section ${number}`);
+    }
+  }
   for (const [prefix, count] of [['R', 16], ['AC', 16], ['I', 8], ['T', 10]]) {
     for (let number = 1; number <= count; number += 1) {
       const id = `${prefix}${String(number).padStart(2, '0')}`;
@@ -134,6 +142,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     for (const error of errors) console.error(error);
     process.exitCode = 1;
   } else {
-    console.log('Repository scaffold checks passed (not runtime qualification).');
+    console.log('Repository structure checks passed (run npm test for offline qualification).');
   }
 }

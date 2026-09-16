@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://miyo-catchup.local/schema/config-v1.json",
+  "title": "miyo-catchup configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config_version", "binding", "roots", "versions", "schedule", "limits", "state"],
+  "properties": {
+    "config_version": {"const": 1},
+    "binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["binding_id", "principal_id", "context_id", "account_id"],
+      "properties": {
+        "binding_id": {"$ref": "#/$defs/id"},
+        "principal_id": {"$ref": "#/$defs/id"},
+        "context_id": {"$ref": "#/$defs/id"},
+        "account_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "roots": {
+      "type": "object", "additionalProperties": false,
+      "required": ["release_root", "extension_root", "native_host_root", "state_root", "runtime_root", "miyo_chats_root", "miyo_manifest_path"],
+      "properties": {
+        "release_root": {"$ref": "#/$defs/absolutePath"},
+        "extension_root": {"$ref": "#/$defs/absolutePath"},
+        "native_host_root": {"$ref": "#/$defs/absolutePath"},
+        "state_root": {"$ref": "#/$defs/absolutePath"},
+        "runtime_root": {"$ref": "#/$defs/absolutePath"},
+        "miyo_chats_root": {"$ref": "#/$defs/absolutePath"},
+        "miyo_manifest_path": {"$ref": "#/$defs/absolutePath"}
+      }
+    },
+    "versions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["worker", "extension", "protocol", "config", "release_sha256", "chatgpt_adapter", "miyo_adapter", "renderer"],
+      "properties": {
+        "worker": {"$ref": "#/$defs/version"},
+        "extension": {"$ref": "#/$defs/version"},
+        "protocol": {"const": 1},
+        "config": {"const": 1},
+        "release_sha256": {"$ref": "#/$defs/fingerprint"},
+        "chatgpt_adapter": {"$ref": "#/$defs/fingerprint"},
+        "miyo_adapter": {"$ref": "#/$defs/fingerprint"},
+        "renderer": {"$ref": "#/$defs/fingerprint"}
+      }
+    },
+    "schedule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["enabled", "timezone", "local_time", "persistent", "randomized_delay_seconds", "accuracy_seconds"],
+      "properties": {
+        "enabled": {"const": false},
+        "timezone": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._+/-]{0,63}$"},
+        "local_time": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+        "persistent": {"const": true},
+        "randomized_delay_seconds": {"type": "integer", "minimum": 0, "maximum": 86400},
+        "accuracy_seconds": {"type": "integer", "minimum": 1, "maximum": 3600}
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["active_collector_requests", "dispatch_spacing_ms", "session_requests_per_attempt", "catalog_pages_per_attempt", "body_requests_per_attempt", "body_ids_per_request", "total_requests_per_attempt", "request_timeout_ms", "permit_start_validity_ms", "uncertain_grace_ms", "collection_active_ms", "attempts_per_rolling_24h", "incomplete_scan_restart_age_ms", "cooldown_min_ms", "clock_discrepancy_ms", "publication_batch", "index_poll_ms", "worker_heartbeat_ms", "status_stale_ms", "index_no_progress_warning_ms", "index_no_progress_stop_ms", "private_artifact_bytes_per_run", "daily_state_bytes", "free_space_reserve_bytes", "max_message_bytes", "max_control_payload_bytes", "max_raw_chunk_bytes", "max_response_bytes", "max_cursor_bytes", "max_unacknowledged_chunks"],
+      "properties": {
+        "active_collector_requests": {"const": 1},
+        "dispatch_spacing_ms": {"const": 5000},
+        "session_requests_per_attempt": {"const": 5},
+        "catalog_pages_per_attempt": {"const": 300},
+        "body_requests_per_attempt": {"const": 200},
+        "body_ids_per_request": {"const": 5},
+        "total_requests_per_attempt": {"const": 505},
+        "request_timeout_ms": {"const": 30000},
+        "permit_start_validity_ms": {"const": 5000},
+        "uncertain_grace_ms": {"const": 60000},
+        "collection_active_ms": {"const": 3600000},
+        "attempts_per_rolling_24h": {"const": 3},
+        "incomplete_scan_restart_age_ms": {"const": 21600000},
+        "cooldown_min_ms": {"const": 3600000},
+        "clock_discrepancy_ms": {"const": 60000},
+        "publication_batch": {"const": 10},
+        "index_poll_ms": {"const": 30000},
+        "worker_heartbeat_ms": {"const": 30000},
+        "status_stale_ms": {"const": 90000},
+        "index_no_progress_warning_ms": {"const": 1800000},
+        "index_no_progress_stop_ms": {"const": 21600000},
+        "private_artifact_bytes_per_run": {"const": 2147483648},
+        "daily_state_bytes": {"const": 10737418240},
+        "free_space_reserve_bytes": {"const": 2147483648},
+        "max_message_bytes": {"const": 262144},
+        "max_control_payload_bytes": {"const": 16384},
+        "max_raw_chunk_bytes": {"const": 184320},
+        "max_response_bytes": {"const": 67108864},
+        "max_cursor_bytes": {"const": 8192},
+        "max_unacknowledged_chunks": {"const": 2}
+      }
+    },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["namespace", "owner"],
+      "properties": {
+        "namespace": {"const": "daily"},
+        "owner": {"const": "miyo-chatgpt-catchup"}
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"},
+    "fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "absolutePath": {"type": "string", "pattern": "^(?:/(?!\\.{1,2}(?:/|$))[^/\\u0000]+)+$", "minLength": 2, "maxLength": 4096}
+  }
+}

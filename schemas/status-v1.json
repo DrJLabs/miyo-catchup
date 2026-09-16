@@ -1,0 +1,593 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://miyo-catchup.local/schema/status-v1.json",
+  "title": "miyo-catchup status v1",
+  "description": "Static wire shape; documented cross-field and UTF-8 byte checks are enforced by the runtime validator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status_version",
+    "generated_at",
+    "worker_instance_id",
+    "worker_version",
+    "connectivity",
+    "liveness",
+    "heartbeat_at",
+    "run",
+    "blockers",
+    "primary_blocker",
+    "pause_requested",
+    "paused_at_safe_boundary",
+    "last_complete_scan",
+    "last_fully_verified_run",
+    "receipt_evidence_at",
+    "next_scheduled_due_at",
+    "cooldown_until",
+    "retry_at",
+    "budget_remaining",
+    "error_code"
+  ],
+  "properties": {
+    "status_version": {
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+    },
+    "worker_instance_id": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        }
+      ]
+    },
+    "worker_version": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"
+        }
+      ]
+    },
+    "connectivity": {
+      "enum": [
+        "available",
+        "unavailable"
+      ]
+    },
+    "liveness": {
+      "enum": [
+        "live",
+        "stale",
+        "unavailable"
+      ]
+    },
+    "heartbeat_at": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+        }
+      ]
+    },
+    "run": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "run_id",
+            "attempt_id",
+            "mode",
+            "trigger_type",
+            "stage",
+            "resume_stage",
+            "scan",
+            "progress"
+          ],
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "attempt_id": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                }
+              ]
+            },
+            "mode": {
+              "enum": [
+                "publish",
+                "dry_run"
+              ]
+            },
+            "trigger_type": {
+              "enum": [
+                "manual",
+                "daily",
+                "popup",
+                "cli"
+              ]
+            },
+            "stage": {
+              "enum": [
+                "queued",
+                "catalog",
+                "downloading",
+                "staged",
+                "importing",
+                "indexing",
+                "final_verification",
+                "verified",
+                "dry_run_complete"
+              ]
+            },
+            "resume_stage": {
+              "enum": [
+                null,
+                "queued",
+                "catalog",
+                "downloading",
+                "staged",
+                "importing",
+                "indexing",
+                "final_verification",
+                "verified",
+                "dry_run_complete"
+              ]
+            },
+            "scan": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "generation",
+                "started_at",
+                "ended_at",
+                "coverage"
+              ],
+              "properties": {
+                "generation": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "started_at": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+                    }
+                  ]
+                },
+                "ended_at": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+                    }
+                  ]
+                },
+                "coverage": {
+                  "enum": [
+                    null,
+                    "qualified_catalog_only"
+                  ]
+                }
+              }
+            },
+            "progress": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "catalog_pages",
+                "catalog_unique",
+                "selected",
+                "selected_new",
+                "selected_updated",
+                "selected_missing_body",
+                "downloaded",
+                "fetched",
+                "reused",
+                "staged",
+                "published",
+                "metadata_changed",
+                "byte_noop",
+                "indexed",
+                "verified",
+                "unchanged",
+                "blocked"
+              ],
+              "properties": {
+                "catalog_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "catalog_unique": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "selected": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "selected_new": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "selected_updated": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "selected_missing_body": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "downloaded": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "fetched": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "reused": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "staged": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "published": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "metadata_changed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "byte_noop": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "indexed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "verified": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unchanged": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "blocked": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "invalid_request",
+          "unsupported_version",
+          "unauthorized",
+          "busy",
+          "not_found",
+          "mode_conflict",
+          "blocked",
+          "budget_exhausted",
+          "cooldown",
+          "dispatch_uncertain",
+          "identity_mismatch",
+          "schema_changed",
+          "internal",
+          "account_mismatch",
+          "login_required",
+          "challenge_required",
+          "clock_untrusted",
+          "local_conflict",
+          "recovery_evidence_missing",
+          "index_stalled",
+          "disk_budget_exhausted",
+          "waiting_for_browser",
+          "indexing_pending",
+          "native_sync_connected",
+          "catalog_cycle",
+          "catalog_unstable",
+          "invalid_body",
+          "unsafe_path"
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 0,
+      "maxItems": 28
+    },
+    "primary_blocker": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "enum": [
+            "invalid_request",
+            "unsupported_version",
+            "unauthorized",
+            "busy",
+            "not_found",
+            "mode_conflict",
+            "blocked",
+            "budget_exhausted",
+            "cooldown",
+            "dispatch_uncertain",
+            "identity_mismatch",
+            "schema_changed",
+            "internal",
+            "account_mismatch",
+            "login_required",
+            "challenge_required",
+            "clock_untrusted",
+            "local_conflict",
+            "recovery_evidence_missing",
+            "index_stalled",
+            "disk_budget_exhausted",
+            "waiting_for_browser",
+            "indexing_pending",
+            "native_sync_connected",
+            "catalog_cycle",
+            "catalog_unstable",
+            "invalid_body",
+            "unsafe_path"
+          ]
+        }
+      ]
+    },
+    "pause_requested": {
+      "type": "boolean"
+    },
+    "paused_at_safe_boundary": {
+      "type": "boolean"
+    },
+    "last_complete_scan": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "run_id",
+            "started_at",
+            "ended_at",
+            "coverage"
+          ],
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+            },
+            "ended_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+            },
+            "coverage": {
+              "const": "qualified_catalog_only"
+            }
+          }
+        }
+      ]
+    },
+    "last_fully_verified_run": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "run_id",
+            "verified_at"
+          ],
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "verified_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+            }
+          }
+        }
+      ]
+    },
+    "receipt_evidence_at": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+        }
+      ]
+    },
+    "next_scheduled_due_at": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+        }
+      ]
+    },
+    "cooldown_until": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+        }
+      ]
+    },
+    "retry_at": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+        }
+      ]
+    },
+    "budget_remaining": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_requests",
+        "catalog_pages",
+        "body_requests",
+        "total_requests",
+        "attempts"
+      ],
+      "properties": {
+        "session_requests": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "catalog_pages": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300
+        },
+        "body_requests": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200
+        },
+        "total_requests": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 505
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        }
+      }
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "enum": [
+            "invalid_request",
+            "unsupported_version",
+            "unauthorized",
+            "busy",
+            "not_found",
+            "mode_conflict",
+            "blocked",
+            "budget_exhausted",
+            "cooldown",
+            "dispatch_uncertain",
+            "identity_mismatch",
+            "schema_changed",
+            "internal",
+            "account_mismatch",
+            "login_required",
+            "challenge_required",
+            "clock_untrusted",
+            "local_conflict",
+            "recovery_evidence_missing",
+            "index_stalled",
+            "disk_budget_exhausted",
+            "waiting_for_browser",
+            "indexing_pending",
+            "native_sync_connected",
+            "catalog_cycle",
+            "catalog_unstable",
+            "invalid_body",
+            "unsafe_path"
+          ]
+        }
+      ]
+    }
+  }
+}

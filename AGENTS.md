@@ -7,9 +7,10 @@
 - Read `README.md` and the relevant sections of
   `docs/implementation-plan.md` before implementation. The plan's R01–R16,
   invariants, and AC01–AC16 are the acceptance baseline.
-- Current stage: repository scaffold only. No collector, extension, importer,
-  CLI, or service is implemented or installed. Do not present scaffold checks
-  as runtime qualification.
+- Current stage: T01 offline foundations. Contracts, framing, path safety and
+  isolated durability tests are source-level work; no collector, extension,
+  importer, CLI or service is implemented or installed. Follow the canonical
+  checkpoint for verified coverage and outstanding qualification gates.
 - Machine-specific operations and historical recovery evidence remain outside
   this repository. Never import private artifacts merely to make a test pass.
 
@@ -28,7 +29,7 @@
 
 ## Commands available now
 
-Use Node 22.23.2 (`.nvmrc`); no package installation is required for the scaffold.
+Use Node 22.23.2 (`.nvmrc`); no package installation is required.
 
 ```bash
 npm run check
@@ -36,9 +37,9 @@ npm test
 git diff --check
 ```
 
-These checks do not access live application state. Negative tests use isolated
-temporary synthetic files. Add actual implementation tests as features land;
-update commands and status alongside implementation changes.
+These checks do not access live application state. Runtime tests use isolated
+temporary synthetic files and child processes. Keep browser/live qualification
+separately gated; update commands and coverage as implementation changes.
 
 ## Safety and authorization
 

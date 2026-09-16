@@ -1,7 +1,7 @@
 # Contributing
 
-This repository currently contains a scaffold and a specification, not a released
-service. Read [AGENTS.md](AGENTS.md) and the
+This repository contains offline T01 foundations and a specification, not a
+released service. Read [AGENTS.md](AGENTS.md) and the
 [implementation plan](docs/implementation-plan.md) before making changes.
 
 1. Identify the task and applicable requirement/acceptance IDs.
@@ -10,8 +10,8 @@ service. Read [AGENTS.md](AGENTS.md) and the
 4. Add synthetic positive and negative cases when implementing behavior. Tests
    must not discover credentials, home directories, or live local services.
 5. Run `npm run check`, `npm test`, and `git diff --check`.
-6. Report exact results and unrun qualification layers. A passing scaffold suite
-   is not evidence that the extension or importer works.
+6. Report exact results and unrun qualification layers. Passing offline tests
+   does not establish that the extension or importer works.
 
 Authenticated browser tests, native-host registration, live archive writes,
 installation and daily activation each require the corresponding scope in the
