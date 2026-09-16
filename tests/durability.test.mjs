@@ -179,6 +179,8 @@ test('SQLite busy faults preserve competing transaction state and backups restor
 test('unsupported user_version is refused before a writable open or pragma mutation', (t) => {
   const root = fixture(t);
   const dbPath = join(root, 'versioned.db');
+  // Exercise schema rejection independently of the runner's process umask.
+  writeFileSync(dbPath, '', { flag: 'wx', mode: 0o600 });
   const raw = new DatabaseSync(dbPath, { allowExtension: false });
   raw.exec('PRAGMA user_version = 99');
   raw.close();
