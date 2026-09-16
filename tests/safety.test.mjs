@@ -134,6 +134,24 @@ test('private creation helpers reject invalid modes before creating artifacts', 
   assert.equal(existsSync(file), false);
 });
 
+test('private file creation sets descriptor permissions independently of umask', (t) => {
+  const root = fixture(t);
+  const originalUmask = process.umask();
+  try {
+    for (const mask of [0o000, 0o022, 0o777]) {
+      process.umask(mask);
+      const file = join(root, `private-${mask}`);
+      assert.equal(createPrivateFile(file, { trustedBoundary: root }), true);
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      writeFileSync(file, 'preserved synthetic content');
+      assert.equal(createPrivateFile(file, { trustedBoundary: root }), false);
+      assert.equal(readFileSync(file, 'utf8'), 'preserved synthetic content');
+    }
+  } finally {
+    process.umask(originalUmask);
+  }
+});
+
 test('ownership validates the command before creating its lock artifact', (t) => {
   const root = fixture(t);
   const lockPath = join(root, 'invalid.lock');

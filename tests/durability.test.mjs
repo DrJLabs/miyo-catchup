@@ -138,6 +138,18 @@ test('pre-existing SQLite sidecars are preflighted before any probe or backup wr
   );
   assert.equal(existsSync(destination), false);
   assert.equal(readFileSync(sentinel, 'utf8'), original);
+  unlinkSync(backupSidecar);
+  for (const suffix of ['-wal', '-shm', '-journal']) {
+    const sidecar = `${destination}${suffix}`;
+    writeFileSync(sidecar, original, { mode: 0o600 });
+    await assert.rejects(
+      durableBackup(source, destination, { root, trustedBoundary: root }),
+      (error) => error?.code === 'backup_exists',
+    );
+    assert.equal(existsSync(destination), false);
+    assert.equal(readFileSync(sidecar, 'utf8'), original);
+    unlinkSync(sidecar);
+  }
   source.close();
 });
 

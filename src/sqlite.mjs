@@ -64,7 +64,7 @@ const SQLITE_AUXILIARY_SUFFIXES = Object.freeze(['-wal', '-shm', '-journal']);
  * pre-existing sidecar before even a read-only probe: a symlink or hard link
  * here could otherwise redirect SQLite writes outside the owned namespace.
  */
-function validateAuxiliaryFiles(pathname, options) {
+function validateAuxiliaryFiles(pathname, options, { rejectExisting = false } = {}) {
   const existing = [];
   const present = new Set();
   for (const suffix of SQLITE_AUXILIARY_SUFFIXES) {
@@ -78,6 +78,9 @@ function validateAuxiliaryFiles(pathname, options) {
     pathCheck(auxiliary, options, { allowMissingLeaf: false, privateMode: true });
     existing.push(auxiliary);
     present.add(suffix);
+  }
+  if (rejectExisting && existing.length > 0) {
+    throw new SQLiteSafetyError('backup destination has pre-existing SQLite sidecars', 'backup_exists');
   }
   if (present.has('-wal') && !present.has('-shm')) {
     throw new SQLiteSafetyError('incomplete SQLite WAL sidecar set', 'incomplete_artifact');
@@ -256,7 +259,7 @@ export async function durableBackup(sourceDb, destination, options = {}) {
   const normalized = normalizeAbsolutePath(destination, 'backup destination');
   const pathOptions = { ...options, root: options.root ?? options.trustedBoundary };
   pathCheck(normalized, pathOptions, { allowMissingLeaf: true, privateMode: false });
-  validateAuxiliaryFiles(normalized, pathOptions);
+  validateAuxiliaryFiles(normalized, pathOptions, { rejectExisting: true });
   // Create missing destinations safely. Existing destinations were verified as
   // owner-only, regular, single-link files by pathCheck.
   if (!createPrivateFile(normalized, { trustedBoundary: pathOptions.trustedBoundary })) {

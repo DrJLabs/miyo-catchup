@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  fchmodSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -248,7 +249,7 @@ export function createPrivateFile(pathname, { trustedBoundary, mode = 0o600 } = 
     return false;
   }
   try {
-    chmodSync(normalized, mode);
+    fchmodSync(descriptor, mode);
   } finally {
     closeSync(descriptor);
   }
