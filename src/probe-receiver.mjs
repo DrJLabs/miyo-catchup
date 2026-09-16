@@ -734,7 +734,7 @@ export function createProbeReceiver(options = {}) {
     appendBytes(partPath, bytes);
     permitState.raw_bytes += bytes.length;
     permitState.next_sequence += 1;
-    state.stage = permitState.kind === 'session-check' ? 'session_partial' : 'body_partial';
+    state.stage = 'body_partial';
     db.prepare('INSERT INTO chunks (permit_id, sequence, offset, decoded_bytes, sha256) VALUES (?, ?, ?, ?, ?)')
       .run(permitState.permit_id, sequence, offset, bytes.length, digest(bytes));
     persistState();

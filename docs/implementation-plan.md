@@ -1344,6 +1344,12 @@ write failures on its dedicated process-lifetime stream.
 The combined second-review candidate passes all 312 offline tests, repository
 checks and whitespace checks; no live deployment was performed.
 
+The third released batch contained no new behavioral defect. Its redundant
+body-only stage conditional was simplified. Two claimed late Promise.race
+rejections were checked against both actual bridge paths with synthetic Chrome
+APIs and strict unhandled-rejection mode: late failures are already observed by
+the race and neither escapes. No dummy catch or browser deployment is needed.
+
 ## 14. Evidence and primary references
 
 The L-series labels preserve traceability to the original design observations.
