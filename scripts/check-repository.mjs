@@ -93,7 +93,7 @@ export function checkRepository(root = repositoryRoot) {
       || pkg.private !== true || pkg.license !== 'UNLICENSED') {
       errors.push('package.json: unexpected package identity or publication policy');
     }
-    if (nodeVersion !== '22.23.2' || pkg.engines?.node !== '>=22.23.2 <23') {
+    if (nodeVersion !== '22.23.2' || pkg.engines?.node !== '22.23.2') {
       errors.push('Node version pin and package engine must match the qualified baseline');
     }
     if (pkg.scripts?.check !== 'node scripts/check-repository.mjs'

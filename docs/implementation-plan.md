@@ -29,6 +29,40 @@ This specification separates binding outcomes and invariants, settled technical 
 
 A later request can authorize several levels together explicitly. Do not repeatedly ask for actions already covered. A missing schedule choice does not block A1. The operator is the approval owner; the implementing agent owns routine design, tests, and evidence within its authorization.
 
+**Approved background-setup amendment (2026-09-16):** after comparing the
+installed stock extension and Desktop, the operator authorized relaxing
+page-only credential isolation where safe. This permits one separately scoped
+`background-setup-inspection`, not stock cookie synchronization. Its fixed HTTPS
+session request runs in the trusted extension worker with browser-managed
+credentials and the existing host permission. Raw authentication responses and
+tokens may exist only in short-lived worker memory: no token cache, cookies API,
+native credential export, popup/log output or credential persistence. Native
+durable leases, permits, dispatch acknowledgements and cooldowns remain required.
+The background instance has a fresh `collector_instance_id`, never a fabricated
+Chrome `document_id`, and a new private staging scope/root and extension fence.
+Both prior failed page attempts remain preserved. Sanitized principal/personal
+backend-context evidence is only a point-in-time candidate, not an attestation
+of the visible page's workspace selection. No body work or scope promotion is
+enabled; subsequent body qualification still needs a reviewed context-binding
+contract. This narrow amendment supersedes page-only wording for this scope
+alone and does not authorize stock sync, publication, services or scheduling.
+
+**Approved selected-body amendment (2026-09-16):** the operator approved one
+fresh background session check followed by one selected-conversation
+`GET /backend-api/conversation/<id>`, bound to the verified personal backend
+account rather than the visible tab's workspace. Each request requires its own
+durable permit and dispatch ACK. The body request uses the validated token with
+`credentials: 'omit'`; there is no cookie fallback, account switching, guessed
+account header, refresh, automatic retry or catalog request. Token retention is
+attempt-local memory only, at most 60 seconds and never beyond token expiry;
+the reference is dropped at body dispatch or any terminal/abort path. This is
+scope `background-selected-conversation`, with a new private root and separate
+extension fence. Prior setup/page roots cannot be promoted. Exact session
+principal/context checks authorize this scope's body only, not workspace
+attestation. Original bounded UTF-8 body bytes may be staged privately after
+contract validation. No credentials leave browser memory; no Miyo write,
+publication, service, scheduling or unrestricted capture is authorized.
+
 ## 1. Verified baseline, evidence limits, and changes from v1
 
 ### 1.1 Evidence baseline and public scope
@@ -80,7 +114,7 @@ Success is a **verified run scoped to its catalog observation interval**, not an
 | ID | Requirement |
 |---|---|
 | R01 | Use the existing signed-in Chrome profile; keep native Miyo ChatGPT sync disconnected and leave stock Miyo Capture unchanged. |
-| R02 | Keep tokens/cookies/authentication responses in the browser page context; never persist or forward them. Bind capture and publication to one explicitly paired principal/context. |
+| R02 | Keep tokens/cookies/authentication responses in the browser page context or the explicitly approved background setup/selected-body worker's short-lived memory; never cache, persist or forward credentials to native/popup/logs. Bind capture and publication to one explicitly paired principal/context. |
 | R03 | Complete and checkpoint the full qualified catalog without chronological shortcuts; state coverage limits honestly. |
 | R04 | Select new, newer or missing-body items without downgrading known versions; preserve unchanged files and local records absent remotely. |
 | R05 | Enforce one worker, one active account job, fenced browser work, bounded requests and durable cooldowns across every trigger/restart. |
@@ -104,7 +138,7 @@ No hard real-time download promise when the browser, user manager, network, or M
 
 ### 2.4 Safety invariants
 
-- I01: no cookie/token/auth-response bytes cross the page boundary or enter logs/fixtures/artifacts.
+- I01: no cookie/token/auth-response bytes cross the approved browser execution boundary or enter logs/fixtures/artifacts. Approved background setup and selected-body scopes may use extension-worker memory only; page scopes retain their original page boundary.
 - I02: at most one current worker owns writes and request accounting; clients cannot choose alternate accounts or bypass permits.
 - I03: incomplete catalog, missing selected bodies, unresolved journal entries or failed verification cannot produce `verified`.
 - I04: no custom index dispatch and no custom writes to `files`, `folder_files`, Qdrant, or `chat_sync.json`.
@@ -193,6 +227,22 @@ The collector holds the transient token in a page-local closure, not extension s
 Use a page-local bounded response buffer and fixed pull/release operations so each script result is a small chunk. Stream the response with an enforced byte cap before JSON parsing or complete-string assembly. Do not return the whole response via `executeScript` and then split it. A stable fixed dispatcher/closure is an implementation choice; it may not accept source code or arbitrary endpoint strings from native clients.
 
 Bind to the configured `session.user.id` only after the live proof establishes its mapping to Miyo's `account_id`. Qualify the selected collection/workspace context; principal equality alone does not prove that a workspace switch preserves catalog scope. Default scope is the tested personal/default context. Unknown or changed context blocks capture rather than adding guessed account headers or switching workspaces.
+
+**Approved T02 setup exception:** a separate one-shot `setup-inspection` scope
+may begin with an expected principal from a unique nonblank historical Miyo
+account and an explicitly unknown (`null`) context. It may obtain exactly one
+permitted session response inside the page, compare the expected principal and
+record only `{principal_id, context_id}` with the observed account ID. The fixed
+inspection adapter requires a personal account, an unambiguous matching page-local
+workspace selection and matching token account scope; unknown or changing values
+block rather than selecting a workspace. Cookie/token/auth-response bytes never
+leave the page. This records candidate setup evidence, not an approved binding or
+capture qualification. Selection is rechecked at the page's final handoff before
+the native commit. This is point-in-time evidence, not an atomic or ongoing
+account binding across browser and native processes. Its private root, durable
+scope and terminal state cannot
+be promoted into session/body work. A later strictly bound proof needs separate
+configuration and a new root; failed or uncertain evidence is never reset.
 
 ### 4.3 Wire envelope and operations
 
@@ -333,9 +383,9 @@ If the extension observes a failure before the worker can durably acknowledge it
 
 ### 6.1 Qualified web adapter
 
-The observed route is session `GET /api/auth/session`, cursor catalog `GET /backend-api/conversations/search?query=&cursor=<opaque>`, and body `POST /backend-api/conversations/batch` with `{conversation_ids:[...]}`. These are private web endpoints, not a public supported API. Freeze the tested contract and fixture fingerprint at T02; no runtime-supplied endpoints or caller-controlled headers. [L4, L6]
+The historical observed route is session `GET /api/auth/session`, cursor catalog `GET /backend-api/conversations/search?query=&cursor=<opaque>`, and body `POST /backend-api/conversations/batch` with `{conversation_ids:[...]}`. The separately approved T02 background proof instead uses the installed reference's fixed single-conversation `GET /backend-api/conversation/<id>`; it does not qualify the historical catalog/batch routes. These are private web endpoints, not a public supported API. Freeze the tested contract and fixture fingerprint at T02; no runtime-supplied endpoints or caller-controlled headers. [L4, L6]
 
-Required catalog fields: `items` array, per-item nonempty `conversation_id` and finite `update_time`, and a cursor following the qualified terminal convention. Preserve opaque cursors exactly; never parse them as offsets. A **null or empty terminal cursor** is completion only if T02 confirms that shape. Absent/unexpected cursor fields fail schema validation. An empty page with a valid nonterminal cursor continues; an empty page is not independently an end signal. Repeated previously visited nonterminal cursors stop with `catalog_cycle`.
+Required catalog fields: `items` array, per-item nonempty `conversation_id` and finite `update_time`, and a cursor following the qualified terminal convention. Preserve opaque cursors exactly; never parse them as offsets. A **null or empty terminal cursor** is completion only after explicit catalog qualification in T04; the selected-body-only T02 proof does not confirm that shape. Absent/unexpected cursor fields fail schema validation. An empty page with a valid nonterminal cursor continues; an empty page is not independently an end signal. Repeated previously visited nonterminal cursors stop with `catalog_cycle`.
 
 Commit each page and next cursor together through the result receipt. Deduplicate IDs, retaining the maximum observed normalized timestamp. Do not stop at an old timestamp, unchanged page, locally known conversation or a reported total. A moving catalog can omit concurrent changes; later runs reconcile them. Receipt records scan start/end, page/unique-item counts and `coverage=qualified_catalog_only`.
 
@@ -542,9 +592,9 @@ Refresh host/root/guidance/Git state and compatibility evidence. Define the v1 s
 
 **Authority/dependency:** A2 after T01; one explicitly selected conversation. **Implements:** R01, R02, R14, R15.
 
-Package the minimum-permission extension, exact-ID native host and private staging receiver. Prove a separately permitted session check followed by one body fetch through the existing signed-in page, without Codex/CDP, cookies permission/export or native sync. Verify byte-exact chunk transfer, identity/context mapping and token non-export. Exercise a synthetic large response and lost port without publishing chats.
+Package the minimum-permission extension, exact-ID native host and private staging receiver. Prove a separately permitted session check followed by one body fetch through the existing signed-in browser profile, without Codex/CDP, cookies permission/export or native sync. The approved background amendments above supersede the original in-page/owned-tab requirement for this proof: use the pinned personal-account token, a cookie-free body GET and a distinct collector instance, with no owned tab created or visible-workspace attestation. Verify byte-exact chunk transfer, identity/context mapping and token non-export. Exercise a synthetic large response and lost port without publishing chats.
 
-**Exit:** AC01, AC02, AC06 and AC13 bridge cases pass, exact digest received, no secret traffic/logs. Record tested session/body evidence and the owned-tab lifecycle; derive initial catalog fixtures from retained evidence without claiming a new live full scan. T02 uses a dedicated qualification harness pinned to the approved conversation ID and reports probe_complete, never a completed catalog run. Live full-catalog behavior is qualified in T04/T09 under sufficient read authorization. If extra permissions, different auth or another browser profile are required, stop here and amend the architecture before broader implementation.
+**Exit:** AC01, AC02, AC06 and AC13 scoped bridge cases pass, exact digest received, no secret traffic/logs. Record tested session/body evidence and the amended no-owned-tab lifecycle. T02 uses a dedicated qualification harness pinned to the approved conversation ID and reports `background_probe_complete` for the approved background scope (`probe_complete` remains the page-scope result), never a completed catalog run. Catalog-fixture derivation and terminal-cursor qualification are explicitly unperformed by this selected-only proof and remain required T04 work, not waived acceptance. Live full-catalog behavior is qualified in T04/T09 under sufficient read authorization. If extra permissions, different auth or another browser profile are required, stop here and amend the architecture before broader implementation.
 
 ### T03 — Durable coordinator, permits, and lifecycle
 
@@ -616,7 +666,7 @@ Use requirement IDs in tests/receipts where useful. The following ACs are bindin
 
 | AC | Requirements | Scenario and objective pass condition | Test/evidence owner |
 |---|---|---|---|
-| AC01 | R01, R02, R14 | Separate extension fetches one approved body with native sync off; token/cookie/auth-response sentinels never appear outside page context; forbidden native sync/import endpoints are unreachable from custom paths | `browser-contract.test.mjs`; T02/T07 live receipts |
+| AC01 | R01, R02, R14 | Separate extension fetches one approved body with native sync off; credential sentinels never cross the approved browser execution boundary (page for page scopes, short-lived worker memory for approved background scopes); forbidden native sync/import endpoints are unreachable from custom paths | `browser-contract.test.mjs`; background collector/integration tests; T02/T07 live receipts |
 | AC02 | R02, R07, R11 | Wrong principal, changed collection context, unknown protocol, blank/foreign manifest account all block before catalog/publication; existing row remains byte-for-byte logically unchanged | `identity.test.mjs`; T01/T02/T05 |
 | AC03 | R03, R11 | Unordered/duplicate pages retain the newest version; empty nonterminal page continues; cycle/malformed/expired cursor and partial scan cannot produce a complete checkpoint; bounded restart does not mix generations | `catalog.test.mjs`; T04 |
 | AC04 | R04, R07 | Frozen unchanged repeat makes zero body requests and preserves every live file's bytes/inode/mtime; missing-body recovery never downgrades a newer local version; absent remote rows are kept | `selection.test.mjs`; T04/T09 |
@@ -721,7 +771,7 @@ Implementation-complete means T01–T09 requirements and tests have evidence, th
 - [x] Specification separates required outcomes, technical contracts, tasks and acceptance evidence.
 - [x] A1 functional implementation authorized and actual runtime source created.
 - [x] T01 contracts/harness qualified at the offline layer described below.
-- [ ] T02 standalone browser proof passed under A2.
+- [x] T02 standalone browser proof passed under A2 for the approved token-bound personal-account route.
 - [ ] T03/T04 durable collection and control passed.
 - [ ] T05/T06 native publication/recovery/verification passed.
 - [ ] T07 live new/updated canaries passed under A3.
@@ -779,6 +829,539 @@ transferred contract without changing its requirements.
 explicitly selected conversation under A2. Its source can be prepared offline;
 pairing and authenticated capture need that scope. T03–T06 remain sequenced after
 successful browser feasibility. Keep one progress record here.
+
+**T02 continuation — not live-qualified, not closed:** the operator authorized proceeding
+to T02 and then its remainder. Offline modules cover the fixed page collector, owned-document bridge,
+sequential probe client, exact-origin native framing/forwarding and a private
+single-probe staging receiver. These preserve protocol version 1 and do not add
+dependencies, an HTTP listener, catalog work, publication, services or scheduling.
+The receiver is an injected qualification harness, not the full T03 coordinator;
+the caller must hold process ownership and supply explicit private roots and a
+qualified body validator. Failed or uncertain attempts cannot be reset/refetched.
+
+Initial T02 validation on Node 22.23.2/Linux passed 110 tests, including
+the original 62 T01 tests, under CI-like umask 0022; repository and diff checks
+passed. A synthetic vertical test runs the actual serialized collector through
+native framing into SQLite-backed private staging, verifies exact body bytes and
+SHA-256, and checks token/cookie sentinels never cross the page boundary. Added
+negative cases cover lost ACK/ports/documents, retained chunk replay, bounded
+streaming and JSON preflight, stalled fetch/read timeout, conflicting receipts,
+missing-artifact replay, clock/boot changes and persistent Retry-After deadlines.
+An injected SQLite receipt failure after artifact fsync preserves the orphan,
+returns no success ACK and prevents continued writes until restart/review.
+These are synthetic T02 portions of AC01, AC02, AC06 and AC13, not completed live
+ACs, full T03 lifecycle qualification or a deployment-filesystem/power-loss proof.
+
+The continuation adds an uninstalled MV3 qualification package with an explicit
+popup/controller, persistent single-attempt start fences, a pinned native entry
+and pure launcher renderer, and a bounded private Unix-socket transport. The
+native host does not claim the worker lock or launch a worker. A synthetic
+cross-process test composes the real native entry, socket and SQLite receiver
+under OS `flock`, rejects a competing process without removing its socket, and
+checks crash/restart ownership. No production configuration or pairing key is
+shipped; no new permissions beyond section 4.1 or dependencies were introduced.
+
+Continuation validation on Node 22.23.2/Linux: all 139 offline tests passed,
+including the large synthetic page-to-native-to-Unix-socket-to-staging digest
+test and the cross-process ownership test. Repository and diff checks passed.
+Review corrections covered the native-client/server ownership boundary, stale
+popup state without a start fence, socket path truncation limits, frame-prefix
+headroom, lost-port deadlines, server reply IDs, cooperative receiver cancellation
+with listener fencing, escaped source patterns and safe socket close. Popup structure/controller
+tests are not visual, keyboard or real-Chrome qualification. No extension was
+loaded, native host registered, ChatGPT request made, Miyo data changed, service
+started, timer enabled, or commit/push performed during that offline validation.
+
+Only a reserved-origin synthetic adapter is present. Real ChatGPT initialization
+fails closed: principal-to-Miyo mapping, observed workspace/context and the actual
+session/body contract are still unqualified. Read-only retained-helper inspection
+confirmed the historical token/principal fields and request route, but no active
+workspace check; parsed recovery wrappers are not raw HTTP/schema qualification.
+There is no capture-capable installed release, running service or live capture proof.
+Browser ownership records survive interruption without adopting or closing old
+tabs; qualification tab cleanup is deliberately operator-owned. The operator has
+now privately selected one conversation and the existing signed-in profile;
+profile metadata and connected-browser inventory were checked without reading
+authentication material. Those identifiers remain outside this public record.
+The browser automation surface blocks extension management and prohibits
+workarounds, so extension loading requires an operator-performed manual handoff.
+A private owner-only unpacked handoff artifact has now been prepared from the
+nine extension files, with a locally generated public manifest key for stable
+extension identity. Readback verified source equality except that key, module
+syntax, exact file inventory and safe ancestor permissions. It remains
+capture-disabled and is not a selected production release. The operator now
+reports the handoff package loaded and enabled in Chrome, and supplied a
+screenshot showing the expected unconfigured popup and disabled Start control.
+This verifies the displayed disabled state, not the native transport or capture.
+Preparing the original handoff artifact made no authenticated requests and did
+not register a native host.
+
+**T02 local connection checkpoint:** an explicit popup connection check and a
+separate foreground status-only endpoint now use existing protocol-v1 global
+`get_status`; no protocol schema, dependency or permission was added. The check
+does not read/write capture configuration or fences, create a page, fetch
+upstream, grant leases/permits, or enable Start. The endpoint reports zero
+upstream budgets, blocks all other operations, verifies inherited kernel flock
+ownership and expires after ten minutes. A passing check is historical evidence
+of that local round trip, never capture completion or ongoing worker health.
+
+All 156 offline tests passed on Node 22.23.2/Linux; repository and diff checks
+passed. Review corrections reject invalid calendar timestamps, discard cached
+popup completion when configuration disappears without clearing the fence, and
+bound ownership-loss shutdown. The operator-loaded package was updated in place
+with its public manifest key unchanged; its original nine files were preserved
+outside the loaded directory. A separate owner-only private snapshot/configuration
+and exact-origin custom native-host registration were prepared and read back.
+Full safe ancestor checks and source equality passed; the stock Miyo host's digest
+was unchanged. A direct local native-launcher round trip, foreign-origin rejection
+and competing-owner/socket-preservation check passed. These did not use Chrome.
+
+The operator's next screenshot confirms the updated popup loaded and its explicit
+**Check local connection** action reported unavailable, with Start still disabled.
+Follow-up inspection found no receiver process, listening socket or lock owner;
+the leftover socket was not evidence of a live endpoint. The prior command session
+was unavailable, but its termination cause was not established. An explicit
+foreground restart under the existing lock checks restored the listener, and
+the direct native-launcher round trip again passed the popup's reply validator.
+The operator then supplied a screenshot of **Local connection check passed.
+Capture is still disabled.** while the foreground session was kept open. This
+is operator-supplied live Chrome-to-native status evidence, not authenticated
+account/workspace, session/body, or private-staging qualification. Start remained
+disabled. The receiver was subsequently stopped; no ongoing liveness is claimed.
+Read-only inspection of the operator-selected conversation's profile menu also
+showed the requested account and a selected personal-account context. The menu
+was dismissed without switching accounts or changing settings. This is visible
+UI evidence only: it does not establish a current session principal, effective
+request context, Miyo mapping or session/body response contract. No private UI
+content or account identifiers were copied into the repository.
+
+Stopping through a terminal exposed duplicate-signal shutdown interruption and
+a leftover socket. Two new regression tests reproduced the failure before the
+source correction: handlers now remain installed through cleanup/child exit and
+the launcher forwards only the first signal. All 158 offline tests passed after
+the fix. The original private snapshot remains unchanged; the shutdown fix is
+source-tested, not yet packaged or browser-tested. A locked-owner restart followed
+by a single directed termination cleaned up the exact stale socket and left no
+receiver running. The check is not a service, and termination or expiry requires
+an explicit restart rather than an automatic background worker. No authenticated
+request, conversation capture, Miyo write, timer activation, commit or push was
+performed. Browser automation was not used to bypass extension-management policy.
+Current context and compatibility evidence must be qualified before authenticated body dispatch;
+configured principal/context equality is not a substitute. Pairing must use a
+private reviewed release with safe ancestors, not relaxed checkout path checks.
+See [T02 qualification boundary](t02-qualification.md) for implemented interfaces,
+official API references and the remaining proof. The T02 checkbox above remains
+open; `probe_complete` is not catalog or verified-run completion.
+
+**T02 session-only continuation:** at the operator's request, the preceding
+transport/package/checkpoint snapshot was committed locally as `bdff29a`, with
+158 offline tests passing and no push. Staged review and private-marker checks
+found no private data; the secret scanner's sole finding was a reviewed benign
+storage-key constant, not a credential.
+
+The next source slice adds `runSessionCheck` using existing protocol-v1 session
+permits, durable dispatch ACKs and receipts, then stops without advertising,
+claiming or dispatching body work. Its result is `session_check_complete`, never
+capture/probe/catalog completion. Both clients reject session results larger
+than one 16 KiB chunk, extra fields, changed identity/context and noncanonical
+JSON before native forwarding. A receiver's explicit `session-only` scope
+durably refuses body work and cannot be promoted to conversation scope by
+reopening the same root. Its distinct binding hash also rejects reopening by
+older conversation-only code. Existing default conversation roots retain their
+contract; a new private scope is not a reset of failed or uncertain evidence.
+Session-only scope needs no body validator and cannot use a supplied validator
+to admit body work.
+
+Validation: all 171 offline tests pass, including both full-probe and session-only
+page-to-native-to-private-staging paths, strict session serialization, durable
+scope binding and legacy conversation-root compatibility. Repository checks and
+diff whitespace checks pass. Independent review found no security blockers;
+its documentation correction was applied. These are synthetic proofs, not live
+Chrome or account-context qualification.
+
+This slice remains source-only: it is not wired into the installed popup, no
+private package was changed, and the reviewed real-adapter registry remains
+empty. Current session response requirements, effective workspace/context
+attestation and read-only principal-to-Miyo-account mapping remain unresolved.
+Do not infer them from the prior UI observation or configured values. No new
+browser permissions or wire operations, authenticated requests, capture, Miyo
+writes, service/timer activation or push occurred during this continuation.
+
+**T02 setup-inspection continuation:** the preceding session-only slice was
+committed locally as `71ed86e` after all 171 offline tests, repository checks,
+staged whitespace checks and a clean staged secret scan. Nothing was pushed.
+Read-only local evidence established a unique nonblank historical Miyo account
+candidate and no active native-sync accounts. The selected conversation is not
+yet in the manifest; that does not disqualify a new-chat proof or authorize any
+import. Current browser principal equality is still unproved.
+
+The current page's public first-party code distinguishes personal/workspace
+account structure, session principal/account IDs, page-local workspace selection
+and token account scope. These are implementation clues, not a current response
+or successful API-context attestation. No credentials or raw authentication
+responses were read during that source inspection. The operator explicitly
+approved the bounded setup exception above to resolve the previous requirement
+for a configured context ID before observing it. The full capture adapter remains
+disabled; setup cannot fetch a conversation, enumerate a catalog or write Miyo.
+
+The approved setup path is now implemented through the explicit popup gesture,
+fixed page adapter, session-only client flow and separate foreground receiver.
+All 201 offline tests pass, including the real-lock setup entry with separate
+runtime/staging roots, scope/replay fences, token non-export and original-byte
+body preservation. Review corrections include awaiting receiver construction,
+keeping the runtime socket root separate, and limiting canonical JSON enforcement
+to sanitized session transfers. A final setup-only account-selection recheck
+precedes native commit; regression tests prove mismatch prevents commit.
+Independent review confirmed the reported blockers were addressed. Repository
+and whitespace checks pass.
+
+A private setup release and rollback copy have been assembled. The previously
+loaded extension directory is updated on disk; its manifest, identity, permissions
+and native-host registration are unchanged. Source parity, owner-only modes,
+configuration consistency and an offline setup-ready/capture-disabled status
+were verified. This is prepared code, not a Chrome reload or live qualification.
+The setup staging directory remains empty and no receiver has been started.
+The next operator step is to reload the existing extension and confirm readiness;
+only then start the bounded foreground receiver and request the explicit
+**Inspect signed-in session** gesture. No authenticated request, Miyo write,
+service/timer activation or push occurred during this setup preparation.
+
+**T02 startup diagnostic correction:** after the setup package was committed as
+`8b23901`, the operator ran the explicit inspection. It created the expected
+qualification tab but the reopened popup reported uncertainty. The tab visibly
+showed the signed-in personal-account home page; this is not backend identity
+attestation. Read-only receiver evidence remained at `new` with zero accepted
+requests, permits, receipts, chunks or artifacts. No collector-issued session or
+body request was dispatched; ordinary traffic from loading ChatGPT is outside
+that statement. The foreground receiver was stopped cleanly and its socket was
+removed. The browser attempt and private staging evidence were preserved.
+
+Offline reproduction found a concrete reporting defect: a startup rejection was
+persisted as a `blocked` fence, but the reader rejected that state and reported
+`uncertain` on reopen. The fix preserves `blocked` as terminal and retains fixed
+startup failure codes without raw errors. Older matching ownership records can
+show only the last recorded milestone; the original browser failure remains
+unidentified because the previous build discarded it. Status inspection is
+read-only and cannot reset the fence, adopt a tab or dispatch a request. No
+permissions, identity checks, retry rules or capture gates were relaxed.
+
+Validation: all 209 offline tests pass, including blocked-fence restart behavior,
+phase-specific failures, sentinel exclusion, legacy milestone redaction and no
+retry effects. Repository checks, whitespace checks and the changed-source secret
+scan pass; focused independent review found no remaining issue in this fix.
+The same private extension directory now contains the diagnostic correction with
+a rollback copy retained. Readback verified source parity and unchanged manifest,
+private configuration, native-host registration and staging database. The next
+manual step is reload-and-open-popup only, to inspect the saved diagnostic; no
+new inspection gesture, receiver start or attempt reset is part of that step.
+The corrected code is not yet live-verified, and the original startup cause is
+still unresolved. No new authenticated collector request or Miyo write occurred.
+
+**T02 isolated startup-only diagnostic preparation:** the operator subsequently
+reloaded the reporting fix and supplied a screenshot showing the saved
+document-bound milestone with the original error unavailable. This verifies the
+new legacy reporting UI, not the original failure cause. The operator then
+approved one isolated startup-only diagnostic, preserving the failed inspection
+and issuing no collector session/conversation requests.
+
+The diagnostic is implemented behind a separate private constructor flag; the
+public package keeps it disabled. Its exact popup gesture requires a reviewed
+private setup configuration and a consistent prior terminal failure fence. It
+writes a new durable diagnostic fence before browser effects, uses a separate
+owned-document record, and never changes the old inspection records. The fixed
+page collector's startup-only mode retains the original context gate, blocks all
+dispatches permanently and cannot be promoted after a context rejection. The
+helper exposes no page handle and validates abort cleanup before reporting a
+pass. No native connection, receiver or authenticated collector request is part
+of this diagnostic. Ordinary traffic from loading the ChatGPT home page remains
+outside the no-collector-request guarantee. Success cannot qualify identity or
+unlock inspection/capture; every attempted diagnostic remains non-retryable.
+
+Validation: all 230 offline tests pass. Coverage includes private/default gates,
+malformed and orphaned records, inconsistent prior failure pairs, restart and
+concurrency fencing, no-fetch page dispatch rejection, separate ownership,
+uncertain cleanup, fixed-code UI and original-evidence preservation. Independent
+review identified the inconsistent-fence case; the correction and regression
+test were re-reviewed with no remaining substantive finding. Repository and
+whitespace checks pass. Secret scans found no credentials: tests/docs were
+clean; the extension scan flagged only the pre-existing public storage-key
+literal, which was manually verified against HEAD. No scanner rule was weakened.
+
+The same private extension directory now contains this diagnostic, with a
+rollback copy retained. Readback verified source parity, owner-only file modes,
+and that the private configuration changed only by adding the diagnostic enable
+flag. The manifest/extension identity, native-host registration, setup config and
+staging database are unchanged. A synthetic status-only import of the private
+package keeps the old inspection blocked and exposes only the new diagnostic;
+this is not a live Chrome test. The receiver socket remains absent. Next manual
+step: reload the existing extension and click **Diagnose startup (no fetch)**
+once, then report its separate message. Do not retry inspection, clear storage,
+remove/reinstall the extension or start a receiver. No live diagnostic was run,
+no Miyo state was written, and these source changes remain uncommitted.
+
+**T02 background-setup continuation (current):** the operator's next screenshot
+showed the first startup-only diagnostic locked with `page_initialization_failed`.
+That old aggregate code cannot distinguish a rejected script invocation from an
+invalid collector result. A second, separately fenced no-fetch diagnostic now
+has source and synthetic coverage, but it was not packaged or run: the operator
+instead approved reassessing page-only credential isolation against installed
+Miyo Capture and Desktop. The comparison and narrow authority amendment appear
+above and in [design evidence](design-evidence.md).
+
+The implemented alternative is `background-setup-inspection`, selected only by
+explicit private configuration and a trusted popup gesture in a non-incognito
+extension context. It opens no page and runs no injected script. The existing
+ChatGPT host permission suffices; no permissions or dependencies were added.
+One fixed credentialed session GET follows the native worker's durable permit
+and dispatch ACK. A fresh collector UUID is recorded separately from Chrome
+document IDs, and old receiver scopes reject the new capability. Tokens and raw
+auth responses are not cached, forwarded, logged or persisted. Principal,
+personal-account and JWT account/expiry checks precede canonical identity-only
+output; response bytes/time and error metadata are bounded. New extension keys,
+receiver scope/root and `background_setup_complete` terminal state preserve both
+old failed page records and prevent retry/promotion. This evidence is a candidate
+backend context only, never visible-page attestation or body qualification.
+
+Source validation currently passes 270 offline tests, including a complete
+background collector-to-native-frames-to-socket-to-SQLite proof, ACK-before-fetch,
+credential sentinel exclusion, scope isolation, terminal reopen fencing,
+lost-dispatch-ACK/no-fetch, lost-commit/no-retry, private/default/incognito gates,
+popup sender checks and unchanged earlier records. Independent review found a
+credential-reference lifetime issue under ignored aborts; abort-aware waits and
+bounded cleanup now settle the collector's own task, with raw response/parser
+references dropped before hashing. The fix and regression tests were re-reviewed
+with no remaining release-blocking finding. Background `reconcile_dispatch` is
+schema validation only in T02: the capability is not advertised, the operation
+is blocked, and uncertain work stays locked for operator review after restart.
+Repository/whitespace checks pass. Secret scans found no credentials; the only
+extension finding remains the pre-existing public storage-key literal, manually
+checked against HEAD. Private identifier/path marker scans also pass.
+
+The existing private extension directory now contains the background flow, with
+the stable manifest/identity/permissions unchanged and prior configuration
+preserved. Its background setup configuration is enabled separately; the unused
+startup diagnostic is disabled, without clearing either old Chrome fence. A new
+owner-only source/receiver release and empty staging root are prepared. The custom
+native-host registration now points to that snapshot's launcher so native
+validation recognizes the new capability and collector field; its name/origin/
+type are unchanged. The previous extension and registration are retained for
+rollback, and the old private setup configuration/database hashes are unchanged.
+Stock Miyo Capture and its registration are untouched.
+
+Readback verified source parity and owner-only modes. A synthetic import/status
+smoke test of the private package confirmed no automatic fetch, native connection,
+tab/script effect or storage write; the original inspection remains blocked,
+only background setup is ready, and capture remains disabled. These are not live
+Chrome results. The receiver remains stopped and its socket absent. Next manual
+step: reload the existing extension, then notify the operator before clicking
+**Inspect session in extension**, so the bounded receiver can be started just in
+time. Do not clear extension storage, reinstall, retry the old inspection or
+click before that receiver is ready. No authenticated background request or live
+Miyo operation has run. Source changes remain uncommitted.
+
+**T02 live background setup result (supersedes the reload handoff above):** after
+the operator reloaded the private package, the bounded foreground receiver was
+started with verified exclusive OS-lock ownership, an owner-only Unix socket and
+fresh `background-setup-inspection` state. The operator clicked the separate
+background inspection once and supplied the completion screenshot. Read-only
+verification found the durable `background_setup_complete` state, six successful
+native protocol receipts, one session permit, zero body permits, no blocker and
+no active permit. The single committed artifact contains exactly the canonical
+principal/context fields: the principal matches the approved historical binding,
+the context is a bounded candidate, and artifact size/SHA-256 match both stored
+evidence and the commit receipt. No raw auth response or credential fields are
+present in that artifact. `attested` remains false; no body artifact, catalog,
+publication or Miyo operation was performed.
+
+The verified receiver was stopped gracefully (exit zero), and its process,
+socket listener and OS-lock ownership were released. Existing failed page
+attempts remain preserved; their old warning does not negate this separate
+success. Live session setup is now qualified for the tested package/profile,
+but T02 remains open for the selected-conversation body proof. Next is a reviewed
+body-request/context-binding contract and a separately bounded selected-body
+test; neither success here nor the discovered context enables that step
+automatically. Source changes remain uncommitted. No further manual click is
+needed until the next package/test handoff.
+
+**T02 selected-body preparation:** at the operator's request, the preceding
+source, diagnostics and verified setup checkpoint were committed locally as
+`807c31a` with all 270 offline tests passing. The staged private-marker scan
+passed; Gitleaks flagged only the already-public non-credential storage key,
+verified against the parent commit. Nothing was pushed and the tree was clean
+at that commit boundary.
+
+The next slice inspected the shipped stock request and response consumers.
+Their single-conversation `GET`, rather than our synthetic batch route, informs
+the new `adapters/chatgpt-selected-conversation.mjs` draft. It is a pure route
+descriptor and parsed-response validator, with no fetch/token/storage/browser
+effects and no live adapter registration. It verifies exact selection, bounded
+timestamps/title/node count, a complete connected mapping with consistent
+parent/child references, and basic message structure; optional metadata remains
+opaque and rendering/import compatibility is not claimed. Its stricter graph
+checks are project acceptance policy, not a claim of observed live completeness.
+Tests cover wrong IDs/envelopes, auth-shaped fields, malformed/partial graphs,
+cycles, duplicates, deep/oversized mappings, accessors and absence of side effects.
+The draft's eight focused tests and the full 278-test offline suite pass, as do
+repository structure and whitespace checks. This is not live body qualification.
+
+The unresolved body-context decision is explicit: stock code sends both bearer
+authorization and cookies without independently proving the selected workspace.
+The proposed next proof would bind a fresh background token to the verified
+personal backend account and omit cookies from one selected-body GET. This would
+not attest the visible tab's workspace. Approval of that extension to the
+background-credential exception is pending; no body collector, package change,
+receiver start or live request was performed in this preparation. Existing live
+setup/failed-page evidence and the stopped receiver remain untouched. T02 is
+still open, and the draft following the commit remains uncommitted.
+
+**T02 approved selected-body continuation (supersedes the pending decision
+above):** the operator approved proceeding with the token-bound, cookie-free
+one-conversation proof. The implementation adds a separate background collector,
+client mode, private popup configuration/action, durable extension fence and
+receiver scope, and explicit foreground selected-conversation entry. Public
+configuration stays undefined. The single source contract lives in the extension
+and is reexported under `adapters/` for native validation, so both boundaries
+use the same fixed selected-ID/graph check. Successful canonical identity
+commit sets scope-local `selected_body_ready`, never `attested`; only this new
+root may grant the body permit. Completion is `background_probe_complete`.
+
+Validation on the pinned runtime passes 307 offline tests, repository checks
+and whitespace checks. The real framing/socket/SQLite synthetic test transfers
+multichunk UTF-8 selected-body bytes with matching digest and no credential
+sentinels. Additional tests cover exact body selection, mismatched context,
+60-second token lifetime/expiry/clock changes, no-cookie GET, durable-ACK loss,
+body/schema/size rejection, hung reads/fetches, permanent one-shot UI fences,
+trusted sender/configuration, preserved old records and native scope refusal.
+Independent review caught unread rejected HTTP responses retaining network
+ownership; both background collectors now cancel/abort before dropping those
+references, and dedicated regressions pass. Re-review found no remaining
+actionable blocker in its bounded scope. Privacy-marker scanning passes;
+Gitleaks reports only the pre-existing public storage-key false positive.
+This establishes offline behavior, not a successful live endpoint/body-schema
+qualification. No Miyo operation, live request, source commit or push occurred
+in this implementation slice. Packaging/live handoff evidence follows here.
+
+**Selected-body package handoff:** a new owner-only private source/receiver
+snapshot, empty staging root and selected configuration are prepared. The
+existing unpacked extension directory was updated with the reviewed modules
+while preserving its manifest key, identity, permissions, prior configuration
+and all Chrome storage fences. A rollback copy of the prior extension and
+custom registration is retained. The custom native host now points to the new
+snapshot's pinned launcher; its allowed origin/name/type remain unchanged.
+Stock Miyo Capture and its registration were not modified. Readback verifies
+package/source parity, owner-only modes, exact config acceptance and unchanged
+prior setup configuration/database digests. A private-package synthetic
+startup/status smoke test reports only the new action ready, with zero fetch,
+native, tab/script, alarm or storage-write effects.
+
+The receiver remains stopped, its socket is absent, and new staging is empty.
+Next manual step: reload the existing extension and report that reload; do not
+click yet. Then start the ten-minute foreground selected-body receiver and
+request exactly one **Fetch selected conversation once** click. Preserve any
+failure and do not retry. Chrome reload, selected-body HTTP acceptance, live
+schema/digest proof and T02 completion remain unverified. Source changes remain
+uncommitted; no push, live request or Miyo operation occurred.
+
+**T02 live selected-body result (supersedes the reload handoff above):** after
+the operator reported reload, preflight verified the pinned private runtime,
+loaded-package parity, unchanged prior setup evidence, empty new staging and
+absence of another receiver. The foreground selected-body owner held the
+exclusive kernel lock and owner-only listening socket before the operator's
+single click. The screenshot captured the popup's intermediate `starting`
+state; durable receiver evidence subsequently showed `background_probe_complete`.
+
+Read-only verification found exactly one session permit and one body permit,
+two committed private artifacts, no active permit/blocker and all native
+receipts successful. Native protocol-message count is not an HTTP-request
+count. The identity artifact is exact canonical principal/context data matching
+the private binding. The body is strict UTF-8, matches the selected conversation
+and complete graph contract, and its original byte count/SHA-256 match both
+stored evidence and the commit receipt. No authentication response is staged.
+The tested runtime was Node 22.23.2 and installed Chrome 153.0.8010.36; this
+evidence is limited to the pinned source/configuration and personal-account
+route. `attested` remains false: visible-page workspace selection was neither
+used nor qualified. No catalog, rendering/import, Miyo publication/indexing or
+scheduled-service claim follows from this result.
+
+The receiver was gracefully stopped with exit zero. Readback proved the
+process, socket listener and lock ownership were released; SQLite quick-check
+passed and the completed state/artifact digests survived shutdown. Prior setup
+configuration/database digests remain unchanged, and old failed attempts were
+not reset. No retry, Miyo operation, commit or push was performed. No further
+manual click is needed. This passes the amended bounded browser-to-staging
+feasibility gate; T02 closeout should reconcile its scoped acceptance evidence
+before the T03 durable coordinator begins. Public configuration stays disabled,
+and untested general capture/catalog/workspace/import layers remain open.
+
+**T02 closeout:** the amended browser-feasibility task is complete for this
+bounded route. The original page-startup failures remain preserved, not
+retroactively qualified; the successful background attempt created no owned
+tab and made no visible-workspace claim. Evidence is scoped as follows:
+
+| Acceptance | T02 evidence | Still outside this closeout |
+|---|---|---|
+| AC01 | One live selected-body read and private commit; synthetic credential-sentinel exclusion, fixed routes and no Miyo endpoints | General capture, native import and production activation |
+| AC02 | Live pinned principal/personal-context match; synthetic mismatched identity/schema and cross-scope rejection | Visible-workspace switching and T05 manifest/account ownership |
+| AC06 | Exclusive live owner; synthetic duplicate/lost ACK, expired/uncertain dispatch and terminal reopen fences | T03 general coordinator lifecycle and safe resumption/reconciliation |
+| AC13 | Exact live original-byte digest; synthetic multichunk UTF-8, frame/body caps and stalled-consumer tests | T04 full-catalog resource behavior and later deployment-scale measurements |
+
+The final offline candidate retains 307 passing tests with repository and
+whitespace checks passing. Independent closeout review found no additional
+release-blocking source issue. Public configuration remains disabled, all
+private live artifacts remain outside Git, and neither a general-purpose
+service nor a Miyo importer is delivered. Catalog-fixture derivation and
+terminal-cursor qualification are open T04 obligations. T03 is the next source
+task after this T02 delivery; this closeout does not activate it or authorize
+another live request. Publication of these source changes is separately
+authorized by the operator's commit/push/PR request.
+
+**T02 publication review:** the first review batch identified a synchronous
+tab-lookup failure that left page-load listeners registered until timeout.
+A regression reproduced the leak, and the load wait now routes synchronous
+errors through the same immediate cleanup as promise rejections. Both paths
+preserve the uncertain one-shot record and create no replacement tab or script
+call. The full offline suite passes 308 tests with repository and whitespace
+checks. This page-bridge correction is source-only; the completed private
+background package was not redeployed or retried. A suggested Windows UID
+fallback was declined because the qualified transport requires Linux ownership,
+private modes, Unix sockets and kernel locks; bypassing UID verification is not
+a portability qualification.
+
+The next released batch found two additional hardening gaps. The shared
+selected-response validator now rejects credential-shaped top-level fields
+after case, separator and Unicode compatibility folding, rather than relying
+on a short exact-case list. Conversation text is not scanned or rewritten.
+The reviewed contract fingerprint changes accordingly. Read-only validation
+of the retained private body passes the stricter check and original digest;
+no new HTTP request, receiver start, package update or state write was made.
+Terminal body-probe recovery now checks both the session and body artifacts,
+including private paths, sizes and digests, and fences missing/corrupt evidence.
+Setup-only roots still check their sole session artifact. Synthetic regressions
+cover the browser rejection boundary and terminal recovery. Suggested lexical
+path rewrites were unnecessary because the existing helper rejects all such
+aliases; the native output error guard remains required for late/cancelled
+write failures on its dedicated process-lifetime stream.
+The combined second-review candidate passes all 312 offline tests, repository
+checks and whitespace checks; no live deployment was performed.
+
+The third released batch contained no new behavioral defect. Its redundant
+body-only stage conditional was simplified. Two claimed late Promise.race
+rejections were checked against both actual bridge paths with synthetic Chrome
+APIs and strict unhandled-rejection mode: late failures are already observed by
+the race and neither escapes. No dummy catch or browser deployment is needed.
+
+The final review closeout reproduced a failure-receipt acknowledgement gap.
+Every qualification route now reports `probe_failed` only after an exact,
+correlated positive `request_failed` reply with `recorded: true`. Negative,
+malformed or lost acknowledgements leave `dispatch_uncertain`; the original
+receipt is persisted before forwarding, with no retry, replacement request ID
+or additional permit. Regressions exercise all five page/background entry
+routes. Package engine metadata and the repository check now require exactly
+Node 22.23.2, matching the existing runtime guards. The qualification and
+architecture docs distinguish the completed selected-route proof from broader
+unqualified capture. All 314 offline tests, repository checks and whitespace
+checks pass. These are source-only corrections; no private package, browser,
+receiver, retained proof or Miyo runtime was changed.
 
 ## 14. Evidence and primary references
 

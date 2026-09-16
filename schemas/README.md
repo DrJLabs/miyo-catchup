@@ -1,5 +1,13 @@
 # Versioned contracts
 
+The separately approved selected-body proof adds the optional capability
+`background_selected_body` alongside `background_session_check`. Only the
+`background-selected-conversation` receiver accepts both; setup/page receivers
+reject promotion. Background dispatch uses `collector_instance_id`, not a
+fabricated document identity. Existing protocol-v1 framing/permits/chunks and
+receipts are reused. A matched session sets scope-local `selected_body_ready`
+but never visible-workspace attestation; completion is `background_probe_complete`.
+
 Version 1 JSON Schemas and matching dependency-free validators are implemented
 for T01. Plan revision v2 does not imply wire-protocol version 2.
 
@@ -31,6 +39,27 @@ Only session work may be granted before attestation; enforcing that lifecycle
 is T02/T03 work. Subsequent work/permit messages require the relevant fence.
 Manual idempotency keys are UUIDs; daily keys name binding, timezone and local
 due date, which the future coordinator must compare to its configured binding.
+
+The private background setup path uses the existing version-1 permit, dispatch,
+chunk and commit envelopes. It issues one session `GET` only after the permit
+and durable dispatch acknowledgement, identifies the source with a unique
+`collector_instance_id` (not a page `document_id`), and transfers only the
+sanitized principal/context outcome. No token or cookie material is a schema
+field or native export. The resulting context is candidate evidence, not
+workspace attestation; receiver completion is `background_setup_complete` and
+the popup's corresponding terminal state is
+`background_setup_inspection_complete`. The public configuration leaves this
+path disabled.
+
+The separately scoped `background-selected-conversation` path adds the
+`background_selected_body` hello capability alongside
+`background_session_check`. It uses the same bounded session/body envelopes but
+requires exact configured principal/context evidence before the body permit,
+uses `collector_instance_id` for both dispatches, keeps `attested` false for
+visible-workspace semantics, and terminates at `background_probe_complete`.
+Its dedicated private entry requires the explicit scope, extension-background
+execution context, non-null binding context and a separate root; setup roots
+cannot be promoted.
 
 `request_failed.retry_after` carries a bounded header, including malformed
 values. T03 must parse seconds/dates and persist the conservative cooldown floor

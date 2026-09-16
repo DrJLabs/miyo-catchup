@@ -79,6 +79,29 @@ test('request validators reject unknown fields, versions, malformed IDs and sens
   assert.doesNotMatch(validateRequest({ ...message, payload: { ...message.payload, token: 'sensitive-value' } }).errors.join(' '), /sensitive-value/);
 });
 
+test('background session capability and collector identity are strict additive wire variants', () => {
+  const hello = requests().hello;
+  hello.payload.capabilities = ['session_check', 'chunking', 'background_session_check'];
+  assert.equal(validateRequest(hello).ok, true);
+  assert.equal(conforms('protocol', hello), true);
+  const dispatch = requests().dispatch_started;
+  dispatch.payload = { browser_instance_id: u(), collector_instance_id: u() };
+  assert.equal(validateRequest(dispatch).ok, true);
+  assert.equal(conforms('protocol', dispatch), true);
+  const reconcile = requests().reconcile_dispatch;
+  reconcile.payload = { browser_instance_id: u(), collector_instance_id: u(), outcome: 'settled' };
+  assert.equal(validateRequest(reconcile).ok, true);
+  assert.equal(conforms('protocol', reconcile), true);
+  for (const payload of [
+    { browser_instance_id: u() },
+    { browser_instance_id: u(), document_id: 'document-1', collector_instance_id: u() },
+  ]) {
+    assert.equal(validateRequest({ ...dispatch, payload }).ok, false);
+    assert.equal(conforms('protocol', { ...dispatch, payload }), false);
+  }
+  assert.equal(validateRequest({ ...hello, payload: { ...hello.payload, capabilities: ['background_session_check'] } }).ok, true);
+});
+
 test('SemVer fixtures agree across config, hello, and status contracts', () => {
   const valid = ['0.0.0', '1.0.0', '1.0.0-alpha', '1.0.0-alpha.1', '1.0.0-0.alpha', '1.0.0--alpha', '1.0.0-rc.1+build.2', '1.0.0+01'];
   const invalid = ['01.0.0', '1.01.0', '1.0.01', '1.0.0-alpha..1', '1.0.0-01', '1.0.0-rc.01', '1.0.0-', '1.0.0+build..2', '1.0.0+build+other', '1.0.0\n', '1.0.0 ', ' 1.0.0'];

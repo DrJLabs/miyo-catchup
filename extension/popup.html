@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Miyo ChatGPT qualification</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main aria-labelledby="title">
+      <h1 id="title">Miyo ChatGPT qualification</h1>
+      <p id="status" role="status" aria-live="polite">Checking qualification status…</p>
+      <button id="check-connection" type="button">Check local connection</button>
+      <p id="connection-status" role="status" aria-live="polite">Local connection has not been checked.</p>
+      <button id="start" type="button" disabled>Start selected probe</button>
+      <button id="inspect-session" type="button" disabled>Inspect signed-in session</button>
+      <button id="inspect-background-session" type="button" disabled>Inspect session in extension</button>
+      <p id="background-status" role="status" aria-live="polite">Background session inspection is disabled.</p>
+      <button id="fetch-selected-conversation" type="button" disabled>Fetch selected conversation once</button>
+      <p id="selected-status" role="status" aria-live="polite">Selected-conversation qualification is disabled.</p>
+      <button id="diagnose-startup" type="button" disabled>Diagnose startup (no fetch)</button>
+      <p id="startup-diagnostic-status" role="status" aria-live="polite">Startup diagnosis is disabled.</p>
+      <p class="note">Startup diagnosis may load the normal ChatGPT page, but it does not open a native connection or issue a collector fetch.</p>
+      <p class="note">The connection check reads only local transport status. It does not access ChatGPT or enable capture.</p>
+    </main>
+    <script type="module" src="popup.mjs"></script>
+  </body>
+</html>

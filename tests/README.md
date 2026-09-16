@@ -12,9 +12,23 @@ Run all offline checks with `npm test` on Node 22.23.2 and Linux with
 | `bounds.test.mjs` | UTF-8/native framing, byte caps, inert JSON and backpressure |
 | `safety.test.mjs` | Private path/type/owner/mode/link rejection |
 | `durability.test.mjs` | SQLite transactions/crash/backup and process lock lifetime |
+| `page-collector.test.mjs` | Synthetic MAIN-world serialization, credential non-export, permits and bounded pulls |
+| `browser-bridge.test.mjs` | Fake Chrome owned-document lifecycle and navigation/restart refusal |
+| `probe-client.test.mjs` | Separate session/body requests, session-only stop boundary, strict sanitized-session forwarding and lost ACK/port behavior |
+| `native-host.test.mjs` | Exact origin, native framing, validated replies and transport backpressure |
+| `native-host-entry.test.mjs` | Closed private config, runtime/origin guards, literal launcher quoting and sanitized CLI failures |
+| `probe-socket.test.mjs` | Real temporary Unix sockets, frame/path/deadline checks and connection ownership |
+| `probe-socket-process.test.mjs` | Native entry to socket/receiver under real process-lifetime flock; competing start and crash/restart |
+| `extension-package.test.mjs`, `probe-controller.test.mjs` | MV3 package scope, explicit popup control, durable fences and no unqualified/autostart effects |
+| `connection-popup.test.mjs` | Explicit local-only status check, strict disabled endpoint profile, sender/gesture guards, sanitized failures and popup races |
+| `connection-check.test.mjs`, `connection-check-entry.test.mjs` | Status-only refusal of capture operations, foreground lock evidence, contention, bounded lifetime and cleanup |
+| `setup-inspection-entry.test.mjs` | Private setup configuration, kernel-owned foreground receiver, bounded lifetime and cleanup |
+| `probe-receiver.test.mjs` | Private one-probe staging, identity/fences, durable scope/receipts and fail-closed restart |
+| `probe-integration.test.mjs` | Actual collector through native framing and a real temporary Unix socket to SQLite staging in conversation, session-only and setup-inspection scopes; exact digest and secret sentinels |
 
-These are T01 portions of AC02, AC12 and AC13. They do not satisfy the later
-browser, importer, lease lifecycle or end-to-end acceptance cases. Fixtures use
+These cover T01 portions of AC02, AC12 and AC13 plus synthetic T02 portions of
+AC01, AC02, AC06 and AC13. They do not satisfy real Chrome, importer, full T03
+lease lifecycle or live end-to-end acceptance cases. Fixtures use
 temporary roots and synthetic content; fake clocks and queue-only transports
 are available in `helpers/harness.mjs`. Process tests use bounded child lifetimes
 and clean up only the temporary directories they create.

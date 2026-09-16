@@ -1,0 +1,7 @@
+:root { color-scheme: light dark; font: 14px system-ui, sans-serif; }
+body { min-width: 280px; margin: 0; }
+main { padding: 16px; }
+h1 { font-size: 1rem; margin: 0 0 12px; }
+p { line-height: 1.4; }
+button { min-height: 36px; width: 100%; }
+.note { color: #666; font-size: .85rem; }
