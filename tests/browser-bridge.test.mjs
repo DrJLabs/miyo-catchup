@@ -127,6 +127,28 @@ test('startup failures are phase-specific, sanitized, persisted once, and never 
   }
 });
 
+test('tab lookup throws and rejections immediately release all load listeners', async () => {
+  for (const synchronous of [true, false]) {
+    const { api, calls, state } = fakeChrome();
+    api.tabs.get = () => {
+      const error = new Error('PRIVATE_LOAD_SENTINEL');
+      if (synchronous) throw error;
+      return Promise.reject(error);
+    };
+    await assert.rejects(openOwnedPage({ chromeApi: api, browserInstanceId, initialize, timeoutMs: 50 }),
+      { code: 'page_load_failed' });
+    assert.equal(api.tabs.onUpdated.listeners.size, 0);
+    assert.equal(api.tabs.onRemoved.listeners.size, 0);
+    assert.equal(state[OWNED_DOCUMENT_KEY].state, 'ownership_uncertain');
+    assert.equal(state[OWNED_DOCUMENT_KEY].startup_failure_code, 'page_load_failed');
+    assert.doesNotMatch(JSON.stringify(state), /PRIVATE_/);
+    assert.equal(calls.filter(([kind]) => kind === 'script').length, 0);
+    await assert.rejects(openOwnedPage({ chromeApi: api, browserInstanceId, initialize }),
+      { code: 'dispatch_uncertain' });
+    assert.equal(calls.filter(([kind]) => kind === 'create').length, 1);
+  }
+});
+
 test('storage failures are bounded and do not leak or reset ownership evidence', async () => {
   const getFailure = fakeChrome({ storageGetError: true });
   await assert.rejects(openOwnedPage({ chromeApi: getFailure.api, browserInstanceId, initialize }),

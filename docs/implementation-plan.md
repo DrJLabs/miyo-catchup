@@ -1315,6 +1315,18 @@ task after this T02 delivery; this closeout does not activate it or authorize
 another live request. Publication of these source changes is separately
 authorized by the operator's commit/push/PR request.
 
+**T02 publication review:** the first review batch identified a synchronous
+tab-lookup failure that left page-load listeners registered until timeout.
+A regression reproduced the leak, and the load wait now routes synchronous
+errors through the same immediate cleanup as promise rejections. Both paths
+preserve the uncertain one-shot record and create no replacement tab or script
+call. The full offline suite passes 308 tests with repository and whitespace
+checks. This page-bridge correction is source-only; the completed private
+background package was not redeployed or retried. A suggested Windows UID
+fallback was declined because the qualified transport requires Linux ownership,
+private modes, Unix sockets and kernel locks; bypassing UID verification is not
+a portability qualification.
+
 ## 14. Evidence and primary references
 
 The L-series labels preserve traceability to the original design observations.

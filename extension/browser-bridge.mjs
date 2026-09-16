@@ -211,9 +211,13 @@ async function openOwnedPageInternal({ chromeApi, browserInstanceId,
       const timer = setTimeout(() => finish(new ProbeClientError('document_unavailable')), timeoutMs);
       chromeApi.tabs.onUpdated.addListener(ready);
       chromeApi.tabs.onRemoved.addListener(gone);
-      Promise.resolve(chromeApi.tabs.get(tabId)).then((current) => {
-        if (current.status === 'complete') finish();
-      }, () => finish(new ProbeClientError('document_lost')));
+      try {
+        Promise.resolve(chromeApi.tabs.get(tabId)).then((current) => {
+          if (current.status === 'complete') finish();
+        }, () => finish(new ProbeClientError('document_lost')));
+      } catch {
+        finish(new ProbeClientError('document_lost'));
+      }
     });
     phase = 'binding';
     const marked = await (startupDiagnosticV2
