@@ -737,15 +737,23 @@ process-lifetime `flock` ownership. Source lives in `src/`, four contracts in
 No CLI, extension, collector, coordinator, importer, installer or service is
 implemented or installed by this checkpoint.
 
-Validation on Node 22.23.2 and Linux: `npm test` passed 54 tests;
+Validation on Node 22.23.2 and Linux: `npm test` passed 58 tests;
 `npm run check` and `git diff --check` passed. Tests include schema-shape parity,
 identity/version/unknown-field rejection, UTF-8/frame/chunk limits, consumer
 backpressure, SQLite commit/rollback across SIGKILL, busy errors, consistent
 backup restoration, unknown-schema refusal, and competing lock owners through
 crash/restart. Safety regression tests preserve external sentinel files when
 database sidecars are hard links and reject invalid creation inputs before
-mutation. All state is synthetic and temporary. SQLite still emits its
+mutation. PR review added regressions for premature commit-result receipts,
+strict semantic versions, existing-directory permission preservation and
+unknown-schema checks that must not create SQLite sidecars. The schema-version
+fixture explicitly creates a private file instead of depending on the runner's
+umask. All state is synthetic and temporary. SQLite still emits its
 experimental-feature warning on this pinned Node version.
+Complete WAL/SHM read-only inspection may update transient SHM coordination
+bytes; qualification observed unchanged main-database and WAL bytes, not
+byte-frozen SHM. Missing-SHM and closed-WAL unknown-version regressions prevent
+creating new sidecars during schema diagnosis.
 
 T01 contributes the schema/local-boundary cases of AC02, AC12 and AC13 plus
 foundations for R02, R11, R12, R15 and R16. It does not claim the full live ACs,

@@ -192,14 +192,37 @@ export function ensurePrivateDirectory(pathname, { trustedBoundary, mode = 0o700
     throw new UnsafePathError('private directory mode must be 0700', 'invalid_mode');
   }
   const normalized = normalizeAbsolutePath(pathname, 'directory');
+  let present = true;
+  try {
+    lstatSync(normalized);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    present = false;
+  }
+  if (present) {
+    // Existing directories are never repaired in place. A caller must prove
+    // the current mode is already private before this helper returns.
+    assertSafePath(normalized, { expectedType: 'directory', privateMode: true, trustedBoundary });
+    return normalized;
+  }
   assertSafePath(normalized, {
     expectedType: 'directory',
     allowMissingLeaf: true,
     trustedBoundary,
   });
-  mkdirSync(normalized, { recursive: true, mode });
-  // mkdir honours the process umask; chmod makes the resulting trust boundary
-  // explicit and also repairs a directory just created with a permissive umask.
+  let created = false;
+  try {
+    mkdirSync(normalized, { mode });
+    created = true;
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+  }
+  if (!created) {
+    assertSafePath(normalized, { expectedType: 'directory', privateMode: true, trustedBoundary });
+    return normalized;
+  }
+  // Only the directory created by this call may be chmod-ed to compensate for
+  // the process umask; a pre-existing directory is never silently changed.
   chmodSync(normalized, mode);
   assertSafePath(normalized, { expectedType: 'directory', privateMode: true, trustedBoundary });
   return normalized;

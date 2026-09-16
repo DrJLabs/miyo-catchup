@@ -1,4 +1,5 @@
 import { writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { openDurableDatabase, transaction } from '../../src/sqlite.mjs';
 
 const args = new Map();
@@ -39,6 +40,13 @@ if (action === 'uncommitted-transaction') {
   waitForever();
 } else if (action === 'hold') {
   signal(lockReadyPath ?? readyPath);
+  waitForever();
+} else if (action === 'raw-uncommitted') {
+  if (!dbPath) throw new Error('missing db');
+  const db = new DatabaseSync(dbPath, { allowExtension: false });
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA user_version = 99; BEGIN IMMEDIATE');
+  db.prepare('INSERT INTO events (value) VALUES (?)').run(args.get('value') ?? 'crash-left');
+  signal(readyPath);
   waitForever();
 } else {
   throw new Error(`unknown action: ${action}`);

@@ -15,6 +15,8 @@ Always supply the originating operation when validating a successful reply.
 Schema tests evaluate positive and negative fixtures independently of the
 handwritten runtime validators using a test-only interpreter for the schema
 keywords used here. No runtime schema framework or dependency is installed.
+Successful `commit_result` receipts require `committed` plus artifact evidence;
+the generic `accepted` outcome cannot acknowledge this operation prematurely.
 
 Runtime checks additionally enforce UTF-8 byte limits (JSON Schema measures
 string characters), inert JSON, decoded chunk length, installed IANA timezone

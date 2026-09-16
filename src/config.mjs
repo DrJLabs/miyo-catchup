@@ -46,7 +46,9 @@ export const DEFAULT_LIMITS = Object.freeze({
 });
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/;
+// SemVer 2.0.0: numeric core components and prerelease numeric identifiers
+// cannot contain leading zeroes; build metadata is dot-separated and opaque.
+const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?![\s\S])/;
 const FINGERPRINT = /^[a-f0-9]{64}$/;
 const ABSOLUTE_PATH = /^\/[^\u0000]*$/;
 const TIME = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;

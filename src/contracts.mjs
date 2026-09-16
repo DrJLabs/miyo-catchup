@@ -36,7 +36,8 @@ export const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/;
+// SemVer 2.0.0 with strict numeric identifiers and dot-separated build data.
+const VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?![\s\S])/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
@@ -373,6 +374,7 @@ export function validateReceipt(value) {
   if (value.outcome === 'committed' && (value.operation !== 'commit_result' || value.artifact === undefined || value.failure_code !== undefined)) fail(errors, '$', 'committed result requires artifact evidence');
   if (['failed', 'rejected', 'blocked'].includes(value.outcome) && (value.failure_code === undefined || value.artifact !== undefined)) fail(errors, '$', 'failure requires a code and no artifact');
   if (value.outcome === 'accepted' && (value.artifact !== undefined || value.failure_code !== undefined)) fail(errors, '$', 'acceptance cannot imply artifact completion');
+  if (value.operation === 'commit_result' && value.outcome !== 'committed' && !['failed', 'rejected', 'blocked'].includes(value.outcome)) fail(errors, '$', 'commit_result requires committed artifact evidence or a failure outcome');
   return result(errors, value);
 }
 

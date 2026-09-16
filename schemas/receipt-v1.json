@@ -46,7 +46,6 @@
             "request_permit",
             "dispatch_started",
             "result_chunk",
-            "commit_result",
             "request_failed",
             "reconcile_dispatch",
             "pause",

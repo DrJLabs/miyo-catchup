@@ -79,6 +79,31 @@ test('request validators reject unknown fields, versions, malformed IDs and sens
   assert.doesNotMatch(validateRequest({ ...message, payload: { ...message.payload, token: 'sensitive-value' } }).errors.join(' '), /sensitive-value/);
 });
 
+test('SemVer fixtures agree across config, hello, and status contracts', () => {
+  const valid = ['0.0.0', '1.0.0', '1.0.0-alpha', '1.0.0-alpha.1', '1.0.0-0.alpha', '1.0.0--alpha', '1.0.0-rc.1+build.2', '1.0.0+01'];
+  const invalid = ['01.0.0', '1.01.0', '1.0.01', '1.0.0-alpha..1', '1.0.0-01', '1.0.0-rc.01', '1.0.0-', '1.0.0+build..2', '1.0.0+build+other', '1.0.0\n', '1.0.0 ', ' 1.0.0'];
+  for (const version of valid) {
+    const hello = requests().hello;
+    hello.payload.extension_version = version;
+    assert.equal(validateRequest(hello).ok, true, `hello ${version}`);
+    assert.equal(conforms('protocol', hello), true, `hello ${version}`);
+    const status = statusFixture();
+    status.worker_version = version;
+    assert.equal(validateStatus(status).ok, true, `status ${version}`);
+    assert.equal(conforms('status', status), true, `status ${version}`);
+  }
+  for (const version of invalid) {
+    const hello = requests().hello;
+    hello.payload.extension_version = version;
+    assert.equal(validateRequest(hello).ok, false, `hello ${version}`);
+    assert.equal(conforms('protocol', hello), false, `hello ${version}`);
+    const status = statusFixture();
+    status.worker_version = version;
+    assert.equal(validateStatus(status).ok, false, `status ${version}`);
+    assert.equal(conforms('status', status), false, `status ${version}`);
+  }
+});
+
 test('reply result validators cover success and sanitized failure replies', () => {
   const id = u();
   const ok = (result) => {
@@ -151,6 +176,13 @@ test('status and receipt validators reject version drift and excess fields', () 
   const receipt = { receipt_version: 1, receipt_id: u(), request_id: u(), run_id: u(), attempt_id: u(), operation: 'commit_result', outcome: 'committed', observed_at: '2026-09-15T00:00:00Z', artifact: { artifact_id: u(), raw_bytes: 3, sha256: '0'.repeat(64) } };
   assert.equal(validateReceipt(receipt).ok, true);
   assert.equal(conforms('receipt', receipt), true);
+  const acceptedCommit = { ...receipt, outcome: 'accepted' };
+  delete acceptedCommit.artifact;
+  assert.equal(validateReceipt(acceptedCommit).ok, false);
+  assert.equal(conforms('receipt', acceptedCommit), false);
+  const failedCommit = { ...acceptedCommit, outcome: 'failed', failure_code: 'internal' };
+  assert.equal(validateReceipt(failedCommit).ok, true);
+  assert.equal(conforms('receipt', failedCommit), true);
   assert.equal(validateReceipt({ ...receipt, receipt_version: 2 }).ok, false);
   assert.equal(validateReceipt({ ...receipt, authorization: 'secret' }).ok, false);
 });

@@ -26,6 +26,13 @@ trusted boundaries are supplied in code, never through IPC; their ancestors
 are a caller trust assumption. Production callers must validate the full
 ancestor chain. Filesystem checks assume the plan's same-user trust model;
 they are not a defense against a malicious same-UID path-replacement race.
+Existing private directories are validated, never chmod-ed into compliance.
+SQLite schema checks read the main-file header when no WAL is present and
+refuse a WAL missing its SHM companion before opening SQLite; this avoids
+creating sidecars while diagnosing unsupported state.
+A complete WAL/SHM pair is inspected through SQLite read-only; this can update
+transient SHM coordination bytes, although the main database and WAL contents
+remain unchanged. Read-only inspection is not a byte-frozen SHM guarantee.
 
 SQLite tests qualify process crash recovery and backup restoration in temporary
 state. They do not establish power-loss durability or qualify a future production

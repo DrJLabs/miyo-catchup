@@ -3,6 +3,7 @@ import {
   fsyncSync,
   lstatSync,
   openSync,
+  readSync,
   constants as fsConstants,
 } from 'node:fs';
 import { backup as sqliteBackup, DatabaseSync } from 'node:sqlite';
@@ -65,6 +66,7 @@ const SQLITE_AUXILIARY_SUFFIXES = Object.freeze(['-wal', '-shm', '-journal']);
  */
 function validateAuxiliaryFiles(pathname, options) {
   const existing = [];
+  const present = new Set();
   for (const suffix of SQLITE_AUXILIARY_SUFFIXES) {
     const auxiliary = normalizeAbsolutePath(`${pathname}${suffix}`, 'SQLite auxiliary path');
     try {
@@ -75,6 +77,10 @@ function validateAuxiliaryFiles(pathname, options) {
     }
     pathCheck(auxiliary, options, { allowMissingLeaf: false, privateMode: true });
     existing.push(auxiliary);
+    present.add(suffix);
+  }
+  if (present.has('-wal') && !present.has('-shm')) {
+    throw new SQLiteSafetyError('incomplete SQLite WAL sidecar set', 'incomplete_artifact');
   }
   return existing;
 }
@@ -122,6 +128,27 @@ function verifyDurability(db) {
   return values;
 }
 
+function readUserVersionHeader(pathname) {
+  const header = Buffer.alloc(100);
+  let descriptor;
+  try {
+    descriptor = openSync(pathname, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const bytes = readSync(descriptor, header, 0, header.length, 0);
+    // SQLite file format, database header: the fixed header is 100 bytes and
+    // user_version is the big-endian 4-byte field at offset 60.
+    // https://www.sqlite.org/fileformat.html#the_database_header
+    if (bytes < 100 || !header.subarray(0, 16).equals(Buffer.from('SQLite format 3\0'))) {
+      throw new SQLiteSafetyError('SQLite header is unsupported', 'unknown_schema');
+    }
+    return header.readUInt32BE(60);
+  } catch (error) {
+    if (error instanceof SQLiteSafetyError) throw error;
+    throw new SQLiteSafetyError('SQLite schema version could not be verified', 'unknown_schema');
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
 /**
  * Open a worker-owned SQLite database with the v2 durable policy. The caller
  * must inject an absolute path (and should inject `root` for tests); no home,
@@ -155,20 +182,30 @@ export function openDurableDatabase(options = {}) {
   if (existing) {
     // Read the schema marker before opening a writable connection or changing
     // any pragma. An unknown version therefore cannot mutate the database.
-    let probe;
-    try {
-      probe = new DatabaseSync(pathname, { readOnly: true, timeout, allowExtension: false });
-      probe.enableLoadExtension(false);
-      const row = probe.prepare('PRAGMA user_version').get();
-      const actualUserVersion = Number(row?.user_version);
+    const hasWal = auxiliaryFiles.some((file) => file.endsWith('-wal'));
+    if (!hasWal) {
+      const actualUserVersion = readUserVersionHeader(pathname);
       if (actualUserVersion !== expectedUserVersion) {
         throw new SQLiteSafetyError('SQLite schema version is unsupported', 'unknown_schema');
       }
-    } catch (error) {
-      if (error instanceof SQLiteSafetyError) throw error;
-      throw new SQLiteSafetyError('SQLite schema version could not be verified', 'unknown_schema');
-    } finally {
-      try { probe?.close(); } catch { /* preserve the original diagnostic */ }
+    } else {
+      // A complete WAL+SHM pair is safe to inspect through SQLite because the
+      // preflight above prevents the probe from creating a missing sidecar.
+      let probe;
+      try {
+        probe = new DatabaseSync(pathname, { readOnly: true, timeout, allowExtension: false });
+        probe.enableLoadExtension(false);
+        const row = probe.prepare('PRAGMA user_version').get();
+        const actualUserVersion = Number(row?.user_version);
+        if (actualUserVersion !== expectedUserVersion) {
+          throw new SQLiteSafetyError('SQLite schema version is unsupported', 'unknown_schema');
+        }
+      } catch (error) {
+        if (error instanceof SQLiteSafetyError) throw error;
+        throw new SQLiteSafetyError('SQLite schema version could not be verified', 'unknown_schema');
+      } finally {
+        try { probe?.close(); } catch { /* preserve the original diagnostic */ }
+      }
     }
   }
   ensureDatabaseFile(pathname, normalizedOptions);

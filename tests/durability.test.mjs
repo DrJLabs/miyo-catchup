@@ -191,6 +191,64 @@ test('unsupported user_version is refused before a writable open or pragma mutat
   verify.close();
 });
 
+test('unknown schema with crash-left WAL and missing shm is refused before probing', async (t) => {
+  const root = fixture(t);
+  const dbPath = join(root, 'wal-version.db');
+  const initial = openDurableDatabase({ path: dbPath, root, trustedBoundary: root });
+  initial.exec('CREATE TABLE events (value TEXT NOT NULL)');
+  initial.close();
+
+  const ready = join(root, 'raw-crash.ready');
+  const child = spawnChild([
+    '--action', 'raw-uncommitted', '--db', dbPath, '--root', root,
+    '--value', 'crash-left', '--ready', ready,
+  ]);
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  const childExit = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+  await waitFor(ready);
+  child.kill('SIGKILL');
+  const result = await childExit;
+  assert.equal(result.signal, 'SIGKILL');
+
+  const walPath = `${dbPath}-wal`;
+  const shmPath = `${dbPath}-shm`;
+  assert.equal(existsSync(walPath), true);
+  assert.equal(existsSync(shmPath), true);
+  const mainBefore = readFileSync(dbPath);
+  const walBefore = readFileSync(walPath);
+  unlinkSync(shmPath);
+  assert.throws(() => openDurableDatabase({
+    path: dbPath, root, trustedBoundary: root, expectedUserVersion: 0,
+  }), (error) => error?.code === 'incomplete_artifact');
+  assert.equal(existsSync(shmPath), false);
+  assert.deepEqual(readFileSync(dbPath), mainBefore);
+  assert.deepEqual(readFileSync(walPath), walBefore);
+});
+
+test('cleanly closed WAL unknown schema is rejected without creating sidecars', (t) => {
+  const root = fixture(t);
+  const dbPath = join(root, 'closed-wal-version.db');
+  const initial = openDurableDatabase({ path: dbPath, root, trustedBoundary: root });
+  initial.close();
+  const raw = new DatabaseSync(dbPath, { allowExtension: false });
+  raw.exec('PRAGMA journal_mode = WAL; PRAGMA user_version = 99; CREATE TABLE events (value TEXT)');
+  raw.close();
+  const walPath = `${dbPath}-wal`;
+  const shmPath = `${dbPath}-shm`;
+  assert.equal(existsSync(walPath), false);
+  assert.equal(existsSync(shmPath), false);
+  const mainBefore = readFileSync(dbPath);
+  assert.throws(() => openDurableDatabase({
+    path: dbPath, root, trustedBoundary: root, expectedUserVersion: 0,
+  }), (error) => error?.code === 'unknown_schema');
+  assert.equal(existsSync(walPath), false);
+  assert.equal(existsSync(shmPath), false);
+  assert.deepEqual(readFileSync(dbPath), mainBefore);
+});
+
 test('explicit invalid busy timeouts fail before database creation', (t) => {
   const root = fixture(t);
   const dbPath = join(root, 'invalid-timeout.db');

@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -113,8 +114,18 @@ test('missing parents cannot be smuggled through a missing intermediate path', (
 
 test('private creation helpers reject invalid modes before creating artifacts', (t) => {
   const root = fixture(t);
+  const privateExisting = join(root, 'private-existing');
+  const existing = join(root, 'existing-directory');
   const directory = join(root, 'bad-directory');
   const file = join(root, 'bad-file');
+  mkdirSync(privateExisting, { mode: 0o700 });
+  chmodSync(privateExisting, 0o700);
+  assert.equal(ensurePrivateDirectory(privateExisting, { trustedBoundary: root }), privateExisting);
+  assert.equal(statSync(privateExisting).mode & 0o777, 0o700);
+  mkdirSync(existing, { mode: 0o755 });
+  chmodSync(existing, 0o755);
+  assert.throws(() => ensurePrivateDirectory(existing, { trustedBoundary: root }), /0700/);
+  assert.equal(statSync(existing).mode & 0o777, 0o755);
   assert.throws(() => ensurePrivateDirectory(directory, { trustedBoundary: root, mode: 0o755 }),
     /0700/);
   assert.throws(() => createPrivateFile(file, { trustedBoundary: root, mode: 0o644 }),

@@ -77,6 +77,25 @@ test('schedule stays disabled and runtime timezone validity is checked', () => {
   assert.equal(validateConfig(malformed).ok, false);
 });
 
+test('SemVer fixtures are accepted and rejected consistently by config and schema', () => {
+  const valid = ['0.0.0', '1.0.0', '1.0.0-alpha', '1.0.0-alpha.1', '1.0.0-0.alpha', '1.0.0--alpha', '1.0.0-rc.1+build.2', '1.0.0+01'];
+  const invalid = ['01.0.0', '1.01.0', '1.0.01', '1.0.0-alpha..1', '1.0.0-01', '1.0.0-rc.01', '1.0.0-', '1.0.0+build..2', '1.0.0+build+other', '1.0.0\n', '1.0.0 ', ' 1.0.0'];
+  const schemaVersion = new RegExp(schema.$defs.version.pattern);
+  for (const version of valid) {
+    const value = fixture();
+    value.versions.worker = version;
+    value.versions.extension = version;
+    assert.equal(validateConfig(value).ok, true, version);
+    assert.equal(schemaVersion.test(version), true, version);
+  }
+  for (const version of invalid) {
+    const value = fixture();
+    value.versions.worker = version;
+    assert.equal(validateConfig(value).ok, false, version);
+    assert.equal(schemaVersion.test(version), false, version);
+  }
+});
+
 test('explicit load is bounded, private, and does not follow a config symlink', () => {
   const root = mkdtempSync(join(tmpdir(), 'miyo-config-test-'));
   chmodSync(root, 0o700);
