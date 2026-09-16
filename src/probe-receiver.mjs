@@ -26,7 +26,8 @@ import {
 
 /**
  * The receiver is deliberately a T02 qualification harness, not a collector.
- * It accepts one session result and one pinned body result. The caller must
+ * It accepts one session result and, for conversation scope, one pinned body
+ * result. The caller must
  * hold a process-lifetime OS ownership lock before constructing it. A
  * process-local guard prevents accidental duplicate writers in one process;
  * it is not a substitute for flock across processes.
@@ -105,10 +106,14 @@ function cooldownEvidence(payload, observedAt, previous = null) {
 }
 
 function validIdentifier(value, label) {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) {
+  if (!isBoundedIdentifier(value)) {
     throw new TypeError(`${label} must be a bounded identifier`);
   }
   return value;
+}
+
+function isBoundedIdentifier(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 }
 
 function privatePath(root, pathname, label, { allowMissingLeaf = true, trustedBoundary = undefined } = {}) {
@@ -216,10 +221,18 @@ function readBoundedFile(pathname) {
   } finally { closeSync(descriptor); }
 }
 
-function assertBinding(options) {
+function assertBinding(options, scope) {
   const binding = options.binding;
   if (!binding || typeof binding !== 'object' || Array.isArray(binding)) throw new TypeError('binding is required');
-  for (const key of ['binding_id', 'principal_id', 'context_id', 'account_id']) validIdentifier(binding[key], `binding.${key}`);
+  for (const key of ['binding_id', 'principal_id', 'account_id']) validIdentifier(binding[key], `binding.${key}`);
+  if (scope === 'setup-inspection' && binding.account_id !== binding.principal_id) {
+    throw new TypeError('setup-inspection requires account_id to equal principal_id');
+  }
+  if (scope === 'setup-inspection') {
+    if (binding.context_id !== null) throw new TypeError('setup-inspection requires binding.context_id to be null');
+    // This scope deliberately starts without a configured context and records
+    // only the bounded context observed by the one session-check transfer.
+  } else validIdentifier(binding.context_id, 'binding.context_id');
   return Object.freeze({ ...binding });
 }
 
@@ -227,6 +240,7 @@ function stateSummary(state, conversationId) {
   return {
     stage: state.stage,
     probe_complete: state.stage === 'probe_complete',
+    setup_complete: state.stage === 'setup_complete',
     catalog_complete: false,
     verified: false,
     conversation_id: conversationId,
@@ -256,7 +270,8 @@ function checkFence(state, request, permitRequired = true) {
  *
  * `root` is mandatory; `trustedBoundary` is an explicit test-only exception to
  * full ancestor validation. `validateBody` is mandatory for conversation scope;
- * session-only scope never admits body work and therefore does not require one.
+ * session-only and setup-inspection scopes never admit body work and therefore
+ * do not require one.
  * `ownership` is a required caller-held
  * lock assertion, not an acquisition mechanism; in production the
  * caller must hold an OS flock for the process lifetime. This module never
@@ -265,21 +280,21 @@ function checkFence(state, request, permitRequired = true) {
 export function createProbeReceiver(options = {}) {
   const requestedScope = options.scope;
   const scope = requestedScope === undefined ? 'conversation' : requestedScope;
-  if (scope !== 'conversation' && scope !== 'session-only') {
-    throw new TypeError('scope must be conversation or session-only');
+  if (!['conversation', 'session-only', 'setup-inspection'].includes(scope)) {
+    throw new TypeError('scope must be conversation, session-only or setup-inspection');
   }
   const root = normalizeAbsolutePath(options.root, 'probe root');
   const trustedBoundary = options.trustedBoundary === undefined
     ? undefined : normalizeAbsolutePath(options.trustedBoundary, 'trustedBoundary');
-  const binding = assertBinding(options);
+  const binding = assertBinding(options, scope);
   const conversationId = validIdentifier(options.conversationId, 'conversationId');
   if (scope === 'conversation' && typeof options.validateBody !== 'function') {
     throw new TypeError('validateBody must be injected');
   }
-  // Session-only roots never admit body work. Keep a defensive false validator
-  // in case a malformed or manually altered permit reaches the commit branch;
-  // a caller-supplied callback must not affect this scope.
-  const validateBody = scope === 'session-only' ? () => false : options.validateBody;
+  // Non-conversation roots never admit body work. Keep a defensive false
+  // validator in case a malformed or manually altered permit reaches commit;
+  // a caller-supplied callback must not affect these scopes.
+  const validateBody = scope === 'conversation' ? options.validateBody : () => false;
   if (typeof options.ownership !== 'function' || options.ownership() !== true) {
     throw new Error('probe receiver ownership was not proven');
   }
@@ -310,9 +325,9 @@ export function createProbeReceiver(options = {}) {
   let state;
   const clock = options.clock;
   const now = () => readClock(clock);
-  const bindingHash = scope === 'session-only'
-    ? digest(canonical({ binding, scope }))
-    : digest(canonical(binding));
+  const bindingHash = scope === 'conversation'
+    ? digest(canonical(binding))
+    : digest(canonical({ binding, scope }));
   const initial = {
     scope, stage: 'new', request_count: 0, attested: false, blocker: null,
     worker_instance_id: randomUUID(), run_id: null, attempt_id: null,
@@ -329,6 +344,10 @@ export function createProbeReceiver(options = {}) {
     if (storedScope !== scope || state.binding_hash !== initial.binding_hash || state.conversation_hash !== initial.conversation_hash) {
       db.close();
       throw new Error('probe scope, binding or conversation changed for existing root');
+    }
+    if (scope === 'setup-inspection' && state.attested !== false) {
+      db.close();
+      throw new Error('setup-inspection state must never be attested');
     }
     // Preserve compatibility with roots created before scope was introduced,
     // while durably pinning their implicit default conversation scope.
@@ -349,7 +368,7 @@ export function createProbeReceiver(options = {}) {
     const transfer = join(transfers, `${row.permit_id}.part`);
     return existsSync(transfer) && state.permit?.permit_id === row.permit_id && state.permit?.status !== 'committed' && state.permit?.status !== 'failed';
   });
-  if (state.stage !== 'new' && state.stage !== 'probe_complete') {
+  if (state.stage !== 'new' && !['probe_complete', 'setup_complete'].includes(state.stage)) {
     state.blocker ??= 'dispatch_uncertain';
     state.stage = 'blocked';
   } else if (hasOrphan) {
@@ -357,24 +376,27 @@ export function createProbeReceiver(options = {}) {
     state.stage = 'blocked';
   }
   const artifactNames = readdirSync(artifacts);
+  const expectedArtifactPath = state.stage === 'setup_complete'
+    ? state.session?.artifact_path : state.body?.artifact_path;
   const hasOrphanArtifact = artifactNames.some((name) => name.endsWith('.json')) &&
-    !(state.body?.artifact_path && artifactNames.includes(state.body.artifact_path.split('/').pop()));
-  if (hasOrphanArtifact && state.stage === 'probe_complete') {
+    !(expectedArtifactPath && artifactNames.includes(expectedArtifactPath.split('/').pop()));
+  if (hasOrphanArtifact && ['probe_complete', 'setup_complete'].includes(state.stage)) {
     state.blocker = 'recovery_evidence_missing';
     state.stage = 'blocked';
   } else if (hasOrphanArtifact && state.stage === 'new') {
     state.blocker = 'dispatch_uncertain';
     state.stage = 'blocked';
   }
-  if (state.stage === 'probe_complete') {
+  if (['probe_complete', 'setup_complete'].includes(state.stage)) {
+    const evidence = state.stage === 'setup_complete' ? state.session : state.body;
     let artifact = null;
     try {
-      if (state.body?.artifact_path) {
-        privatePath(root, state.body.artifact_path, 'probe artifact', { allowMissingLeaf: false, trustedBoundary });
-        artifact = readBoundedFile(state.body.artifact_path);
+      if (evidence?.artifact_path) {
+        privatePath(root, evidence.artifact_path, 'probe artifact', { allowMissingLeaf: false, trustedBoundary });
+        artifact = readBoundedFile(evidence.artifact_path);
       }
     } catch { artifact = null; }
-    if (!artifact || artifact.length !== state.body.raw_bytes || digest(artifact) !== state.body.sha256) {
+    if (!artifact || artifact.length !== evidence?.raw_bytes || digest(artifact) !== evidence?.sha256) {
       state.blocker = 'recovery_evidence_missing';
       state.stage = 'blocked';
     }
@@ -400,6 +422,10 @@ export function createProbeReceiver(options = {}) {
     if (closed || faulted) throw new Error('probe receiver is closed or requires restart');
     if (options.ownership() !== true) throw new Error('probe receiver ownership was lost');
     checkRequest(envelope);
+    if (scope === 'setup-inspection' && state.stage === 'setup_complete'
+      && ['claim_work', 'request_permit', 'dispatch_started'].includes(envelope.operation)) {
+      return reply(envelope.request_id, false, fail('blocked'));
+    }
     const duplicate = responseForDuplicate(db, envelope);
     if (duplicate) {
       if (duplicate.ok && envelope.operation === 'commit_result') {
@@ -489,13 +515,16 @@ export function createProbeReceiver(options = {}) {
 
   function claim(request) {
     const p = request.payload;
+    if (scope === 'setup-inspection' && state.stage === 'setup_complete') {
+      return boundedResponse(request, reply(request.request_id, false, fail('blocked')));
+    }
     if (scope === 'session-only' && state.attested) {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
     }
     if (scope === 'session-only' && (p.principal_id !== null || p.context_id !== null)) {
       return boundedResponse(request, reply(request.request_id, false, fail('blocked')));
     }
-    if (state.blocker || state.stage === 'probe_complete') {
+    if (state.blocker || ['probe_complete', 'setup_complete'].includes(state.stage)) {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
     }
     if (state.browser_instance_id === null) state.browser_instance_id = p.browser_instance_id;
@@ -528,14 +557,16 @@ export function createProbeReceiver(options = {}) {
   }
 
   function fence(request, workUnit) {
-    if (!checkFence(state, request, false) || state.blocker || state.stage === 'probe_complete') return false;
+    if (!checkFence(state, request, false) || state.blocker
+      || ['probe_complete', 'setup_complete'].includes(state.stage)) return false;
     if (state.attested && workUnit === 'session-check') return false;
     if (!state.attested && workUnit === 'body') return false;
     return true;
   }
 
   function permit(request) {
-    if (scope === 'session-only' && state.attested) {
+    if ((scope === 'session-only' && state.attested)
+      || (scope === 'setup-inspection' && state.stage === 'setup_complete')) {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
     }
     const expectedUnit = state.attested ? 'body' : 'session-check';
@@ -579,7 +610,8 @@ export function createProbeReceiver(options = {}) {
   }
 
   function dispatchStarted(request) {
-    if (scope === 'session-only' && state.attested) {
+    if ((scope === 'session-only' && state.attested)
+      || (scope === 'setup-inspection' && state.stage === 'setup_complete')) {
       return boundedResponse(request, reply(request.request_id, false, fail(state.blocker ?? 'blocked')));
     }
     const permitState = permitFor(request);
@@ -657,6 +689,9 @@ export function createProbeReceiver(options = {}) {
   }
 
   function commit(request) {
+    if (scope === 'setup-inspection' && state.stage === 'setup_complete') {
+      return boundedResponse(request, reply(request.request_id, false, fail('blocked')));
+    }
     const permitState = permitFor(request);
     if (!permitState || permitState.status !== 'started' || permitState.next_sequence !== request.payload.chunk_count ||
         permitState.raw_bytes !== request.payload.raw_bytes) {
@@ -683,9 +718,24 @@ export function createProbeReceiver(options = {}) {
       return boundedResponse(request, reply(request.request_id, false, fail('invalid_body')));
     }
     if (permitState.kind === 'session-check') {
-      const keys = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Object.keys(parsed).sort() : [];
-      if (keys.length !== 2 || keys[0] !== 'context_id' || keys[1] !== 'principal_id' ||
-          parsed.principal_id !== binding.principal_id || parsed.context_id !== binding.context_id) {
+      let canonicalBytes;
+      try { canonicalBytes = Buffer.from(JSON.stringify(parsed), 'utf8'); } catch {
+        state.blocker = 'invalid_body'; state.stage = 'blocked';
+        persistState();
+        return boundedResponse(request, reply(request.request_id, false, fail('invalid_body')));
+      }
+      if (!canonicalBytes.equals(bytes)) {
+        state.blocker = 'invalid_body'; state.stage = 'blocked';
+        persistState();
+        return boundedResponse(request, reply(request.request_id, false, fail('invalid_body')));
+      }
+      const keys = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? Object.keys(parsed) : [];
+      const shapeValid = keys.length === 2 && keys[0] === 'principal_id' && keys[1] === 'context_id';
+      const identityValid = parsed?.principal_id === binding.principal_id;
+      const contextValid = scope === 'setup-inspection'
+        ? isBoundedIdentifier(parsed?.context_id)
+        : parsed?.context_id === binding.context_id;
+      if (!shapeValid || !identityValid || !contextValid) {
         state.blocker = 'identity_mismatch'; state.stage = 'blocked';
         persistState();
         return boundedResponse(request, reply(request.request_id, false, fail('identity_mismatch')));
@@ -712,7 +762,14 @@ export function createProbeReceiver(options = {}) {
     permitState.status = 'committed';
     permitState.artifact_id = artifactId;
     if (permitState.kind === 'session-check') {
-      state.session = evidence; state.attested = true; state.stage = 'session_committed';
+      state.session = evidence;
+      if (scope === 'setup-inspection') {
+        state.attested = false;
+        state.stage = 'setup_complete';
+      } else {
+        state.attested = true;
+        state.stage = 'session_committed';
+      }
     } else {
       state.body = evidence; state.stage = 'probe_complete';
     }

@@ -194,6 +194,22 @@ Use a page-local bounded response buffer and fixed pull/release operations so ea
 
 Bind to the configured `session.user.id` only after the live proof establishes its mapping to Miyo's `account_id`. Qualify the selected collection/workspace context; principal equality alone does not prove that a workspace switch preserves catalog scope. Default scope is the tested personal/default context. Unknown or changed context blocks capture rather than adding guessed account headers or switching workspaces.
 
+**Approved T02 setup exception:** a separate one-shot `setup-inspection` scope
+may begin with an expected principal from a unique nonblank historical Miyo
+account and an explicitly unknown (`null`) context. It may obtain exactly one
+permitted session response inside the page, compare the expected principal and
+record only `{principal_id, context_id}` with the observed account ID. The fixed
+inspection adapter requires a personal account, an unambiguous matching page-local
+workspace selection and matching token account scope; unknown or changing values
+block rather than selecting a workspace. Cookie/token/auth-response bytes never
+leave the page. This records candidate setup evidence, not an approved binding or
+capture qualification. Selection is rechecked at the page's final handoff before
+the native commit. This is point-in-time evidence, not an atomic or ongoing
+account binding across browser and native processes. Its private root, durable
+scope and terminal state cannot
+be promoted into session/body work. A later strictly bound proof needs separate
+configuration and a new root; failed or uncertain evidence is never reset.
+
 ### 4.3 Wire envelope and operations
 
 Protocol version starts at **1**; plan v2 does not imply wire version 2. Every request has `protocol_version`, UUID `request_id`, allowlisted `operation`, and typed `payload`. Work messages additionally carry worker-issued `run_id`, `attempt_id`, `lease_generation`, and `permit_id`. Replies echo the request ID/version and contain either `{ok:true,result}` or `{ok:false,error:{code,retry_at}}`. Human-facing messages come from local error templates, not raw remote errors.
@@ -936,6 +952,45 @@ attestation and read-only principal-to-Miyo-account mapping remain unresolved.
 Do not infer them from the prior UI observation or configured values. No new
 browser permissions or wire operations, authenticated requests, capture, Miyo
 writes, service/timer activation or push occurred during this continuation.
+
+**T02 setup-inspection continuation:** the preceding session-only slice was
+committed locally as `71ed86e` after all 171 offline tests, repository checks,
+staged whitespace checks and a clean staged secret scan. Nothing was pushed.
+Read-only local evidence established a unique nonblank historical Miyo account
+candidate and no active native-sync accounts. The selected conversation is not
+yet in the manifest; that does not disqualify a new-chat proof or authorize any
+import. Current browser principal equality is still unproved.
+
+The current page's public first-party code distinguishes personal/workspace
+account structure, session principal/account IDs, page-local workspace selection
+and token account scope. These are implementation clues, not a current response
+or successful API-context attestation. No credentials or raw authentication
+responses were read during that source inspection. The operator explicitly
+approved the bounded setup exception above to resolve the previous requirement
+for a configured context ID before observing it. The full capture adapter remains
+disabled; setup cannot fetch a conversation, enumerate a catalog or write Miyo.
+
+The approved setup path is now implemented through the explicit popup gesture,
+fixed page adapter, session-only client flow and separate foreground receiver.
+All 201 offline tests pass, including the real-lock setup entry with separate
+runtime/staging roots, scope/replay fences, token non-export and original-byte
+body preservation. Review corrections include awaiting receiver construction,
+keeping the runtime socket root separate, and limiting canonical JSON enforcement
+to sanitized session transfers. A final setup-only account-selection recheck
+precedes native commit; regression tests prove mismatch prevents commit.
+Independent review confirmed the reported blockers were addressed. Repository
+and whitespace checks pass.
+
+A private setup release and rollback copy have been assembled. The previously
+loaded extension directory is updated on disk; its manifest, identity, permissions
+and native-host registration are unchanged. Source parity, owner-only modes,
+configuration consistency and an offline setup-ready/capture-disabled status
+were verified. This is prepared code, not a Chrome reload or live qualification.
+The setup staging directory remains empty and no receiver has been started.
+The next operator step is to reload the existing extension and confirm readiness;
+only then start the bounded foreground receiver and request the explicit
+**Inspect signed-in session** gesture. No authenticated request, Miyo write,
+service/timer activation or push occurred during this setup preparation.
 
 ## 14. Evidence and primary references
 

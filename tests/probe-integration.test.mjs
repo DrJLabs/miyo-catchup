@@ -7,7 +7,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import vm from 'node:vm';
 import { pageCollector } from '../extension/page-collector.mjs';
-import { createNativeClient, runProbe, runSessionCheck } from '../extension/probe-client.mjs';
+import { createNativeClient, runProbe, runSessionCheck, runSetupInspection } from '../extension/probe-client.mjs';
 import { assertReply, assertRequest } from '../src/contracts.mjs';
 import { encodeNativeMessage, NativeFrameDecoder } from '../src/framing.mjs';
 import { runNativeHost } from '../src/native-host.mjs';
@@ -22,19 +22,28 @@ function event() {
 }
 
 async function runVerticalProof(t, scope) {
+  const setup = scope === 'setup-inspection';
   const root = temporaryRoot(t);
   const clock = new FakeClock();
   const binding = { binding_id: 'synthetic-binding', principal_id: 'synthetic-principal',
-    context_id: 'synthetic-personal', account_id: 'synthetic-account' };
+    context_id: setup ? null : 'synthetic-personal',
+    account_id: setup ? 'synthetic-principal' : 'synthetic-account' };
+  const observedContext = 'synthetic-personal';
   const conversationId = 'synthetic-conversation';
   const body = Buffer.from(JSON.stringify({ conversation: { id: conversationId }, text: '雪🌿'.repeat(60000) }));
   const tokenSentinel = 'SYNTHETIC_PAGE_ONLY_TOKEN';
   const cookieSentinel = 'SYNTHETIC_PAGE_ONLY_COOKIE';
+  const setupToken = ['eyJhbGciOiJSUzI1NiJ9', Buffer.from(JSON.stringify({
+    'https://api.openai.com/auth': { chatgpt_account_id: observedContext },
+    sentinel: tokenSentinel,
+  })).toString('base64url'), 'synthetic-signature'].join('.');
   const calls = [];
   const boundaryReplies = [];
   class SyntheticDate extends Date { static now() { return clock.wall; } }
   const realm = vm.createContext({
-    location: { origin: 'https://miyo-catchup.invalid' },
+    location: { origin: setup ? 'https://chatgpt.com' : 'https://miyo-catchup.invalid' },
+    document: { cookie: `_account=personal; synthetic_secret=${cookieSentinel}` },
+    atob, btoa,
     __MIYO_CATCHUP_SYNTHETIC_TEST__: true,
     performance: { now: () => clock.monotonic }, Date: SyntheticDate,
     TextEncoder, TextDecoder, AbortController, setTimeout, clearTimeout, crypto: webcrypto,
@@ -44,9 +53,13 @@ async function runVerticalProof(t, scope) {
       let bytes;
       if (path === '/api/auth/session') {
         assert.equal(options.method, 'GET');
-        bytes = Buffer.from(JSON.stringify({ user: { id: binding.principal_id },
-          context: { id: binding.context_id }, token: tokenSentinel, cookie: cookieSentinel }));
+        bytes = Buffer.from(JSON.stringify(setup
+          ? { user: { id: binding.principal_id },
+            account: { id: observedContext, structure: 'personal' }, accessToken: setupToken }
+          : { user: { id: binding.principal_id },
+            context: { id: binding.context_id }, token: tokenSentinel, cookie: cookieSentinel }));
       } else {
+        assert.equal(setup, false, 'setup inspection must never request a body');
         assert.equal(path, '/backend-api/conversations/batch');
         assert.equal(options.method, 'POST');
         assert.deepEqual(JSON.parse(options.body), { conversation_ids: [conversationId] });
@@ -54,7 +67,7 @@ async function runVerticalProof(t, scope) {
         bytes = body;
       }
       let offset = 0;
-      return { status: 200, body: { getReader: () => ({
+      return { status: 200, headers: { get: (name) => name.toLowerCase() === 'content-type' ? 'application/json' : null }, body: { getReader: () => ({
         async read() {
           if (offset === bytes.length) return { done: true };
           // Force stream splits within multibyte text independently of pulls.
@@ -76,7 +89,9 @@ async function runVerticalProof(t, scope) {
   };
   assert.equal((await callPage({ operation: 'initialize',
     binding: { principal_id: binding.principal_id, context_id: binding.context_id },
-    conversation_id: conversationId, qualification: { adapter_id: 'synthetic-v1' } })).ok, true);
+    conversation_id: conversationId, qualification: {
+      adapter_id: setup ? 'chatgpt-setup-2026-09-16' : 'synthetic-v1',
+    } })).ok, true);
   const receiver = createProbeReceiver({ root, trustedBoundary: root, binding,
     conversationId, clock, scope, ownership: () => true, // synthetic caller-held lock attestation
     validateBody: (parsed, expected) => parsed.conversation?.id === expected && typeof parsed.text === 'string' });
@@ -124,13 +139,14 @@ async function runVerticalProof(t, scope) {
     decoder.finish();
   })();
   closeHost = async () => { client.close(); await host; output.end(); await replies; };
-  const run = scope === 'session-only' ? runSessionCheck : runProbe;
+  const run = setup ? runSetupInspection : scope === 'session-only' ? runSessionCheck : runProbe;
   const result = await run({ request: (message) => client.request(message),
     page: { documentId: 'synthetic-document', call: callPage }, browserInstanceId: randomUUID(),
     binding: { principal_id: binding.principal_id, context_id: binding.context_id }, conversationId,
     wait: async (ms) => clock.advance(ms), persistFailure: async () => assert.fail('unexpected failure receipt') });
-  assert.equal(result.state, scope === 'session-only' ? 'session_check_complete' : 'probe_complete');
+  assert.equal(result.state, setup ? 'setup_inspection_complete' : scope === 'session-only' ? 'session_check_complete' : 'probe_complete');
   assert.equal(receiver.snapshot().probe_complete, scope === 'conversation');
+  if (setup) assert.equal(receiver.snapshot().setup_complete, true);
   assert.equal(receiver.snapshot().catalog_complete, false);
   assert.equal(receiver.snapshot().verified, false);
   if (scope === 'conversation') {
@@ -141,9 +157,11 @@ async function runVerticalProof(t, scope) {
       { path: '/backend-api/conversations/batch', method: 'POST' }]);
   } else {
     assert.equal(result.receipts.length, 1);
-    const sanitized = Buffer.from(JSON.stringify({ principal_id: binding.principal_id, context_id: binding.context_id }));
+    const sanitized = Buffer.from(JSON.stringify({ principal_id: binding.principal_id,
+      context_id: setup ? observedContext : binding.context_id }));
     assert.equal(result.receipts[0].sha256, createHash('sha256').update(sanitized).digest('hex'));
     assert.equal(result.receipts[0].raw_bytes, sanitized.length);
+    assert.deepEqual(readFileSync(join(root, 'artifacts', `${result.receipts[0].artifact_id}.json`)), sanitized);
     assert.deepEqual(calls, [{ path: '/api/auth/session', method: 'GET' }]);
     assert.equal(wire.filter((message) => JSON.parse(message).operation === 'request_permit').length, 1);
     assert.equal((await callPage({ operation: 'release' })).ok, false);
@@ -152,10 +170,11 @@ async function runVerticalProof(t, scope) {
     assert.ok(Buffer.byteLength(serialized) <= 262144);
     assert.ok(!serialized.includes(tokenSentinel));
     assert.ok(!serialized.includes(cookieSentinel));
+    assert.ok(!serialized.includes(setupToken));
   }
 }
 
-for (const scope of ['conversation', 'session-only']) {
+for (const scope of ['conversation', 'session-only', 'setup-inspection']) {
   test(`T02 ${scope} vertical synthetic proof: fixed page -> native frames -> Unix socket -> durable private bytes`,
     (t) => runVerticalProof(t, scope));
 }

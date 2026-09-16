@@ -32,5 +32,13 @@ test('popup uses semantic controls and does not display configuration identifier
   assert.match(html, /<main aria-labelledby="title">/);
   assert.match(html, /<p id="status" role="status" aria-live="polite">/);
   assert.match(html, /<button id="start" type="button" disabled>/);
+  assert.match(html, /<button id="inspect-session" type="button" disabled>/);
   assert.doesNotMatch(popup, /conversation_id|principal_id|context_id|contract_fingerprint/);
+});
+
+test('public qualification config has no enabled account or context', async () => {
+  const config = await text('qualification-config.mjs');
+  assert.match(config, /export const setupConfig = undefined/);
+  assert.match(config, /chatgpt-setup-2026-09-16/);
+  assert.doesNotMatch(config, /browser_instance_id|conversation_id|principal_id|context_id/);
 });

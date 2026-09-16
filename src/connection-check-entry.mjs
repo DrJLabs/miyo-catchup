@@ -104,15 +104,21 @@ export async function runConnectionCheckOwner({
   assertSafePath(lockPath, { label: 'connection-check lock', expectedType: 'file', privateMode: true, trustedBoundary });
   assertFlockOwnership(lockPath);
 
-  const receiver = createReceiver();
   const ownership = () => assertFlockOwnership(lockPath);
-  const server = await createServer({
-    socketPath,
-    privateRoot,
-    trustedBoundary,
-    ownership,
-    receiver,
-  });
+  const receiver = await createReceiver({ ownership, configuration });
+  let server;
+  try {
+    server = await createServer({
+      socketPath,
+      privateRoot,
+      trustedBoundary,
+      ownership,
+      receiver,
+    });
+  } catch (error) {
+    try { receiver.close?.(); } catch { /* receiver cleanup is best effort */ }
+    throw error;
+  }
 
   let settled = false;
   let finish;
@@ -127,6 +133,7 @@ export async function runConnectionCheckOwner({
     } catch {
       outcome = 'socket_ownership_lost';
     } finally {
+      try { receiver.close?.(); } catch { /* receiver cleanup is best effort */ }
       process.removeListener('SIGINT', onSignal);
       process.removeListener('SIGTERM', onSignal);
     }

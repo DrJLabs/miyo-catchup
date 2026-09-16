@@ -13,6 +13,7 @@ export function pageCollector(command) {
   const SESSION_PATH = '/api/auth/session';
   const BODY_PATH = '/backend-api/conversations/batch';
   const SYNTHETIC_ADAPTER_ID = 'synthetic-v1';
+  const SETUP_ADAPTER_ID = 'chatgpt-setup-2026-09-16';
   const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
   const MAX_SESSION_BYTES = 16 * 1024;
   const MAX_RAW_CHUNK_BYTES = 180 * 1024;
@@ -24,8 +25,8 @@ export function pageCollector(command) {
 
   const plainObject = (value) => value !== null && typeof value === 'object'
     && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
-  const keysExactly = (value, keys) => plainObject(value)
-    && Object.keys(value).every((key) => keys.includes(key))
+  const keysExactly = (value, keys, optional = []) => plainObject(value)
+    && Object.keys(value).every((key) => keys.includes(key) || optional.includes(key))
     && keys.every((key) => Object.hasOwn(value, key));
   const boundedId = (value) => typeof value === 'string' && ID.test(value);
   const FAILURE_CLASS = new Map([
@@ -68,7 +69,66 @@ export function pageCollector(command) {
     },
   });
 
+  const readAccountSelection = () => {
+    let cookieText;
+    try { cookieText = globalThis.document?.cookie; } catch { return null; }
+    if (typeof cookieText !== 'string' || cookieText.length === 0 || cookieText.length > 16384) return null;
+    let selected;
+    for (const rawPart of cookieText.split(';')) {
+      const part = rawPart.trim();
+      const separator = part.indexOf('=');
+      if (separator <= 0) {
+        if (part === '_account') return null;
+        continue;
+      }
+      const name = part.slice(0, separator).trim();
+      if (name !== '_account') continue;
+      if (selected !== undefined) return null;
+      const encoded = part.slice(separator + 1).trim();
+      if (encoded.length === 0 || encoded.length > 512) return null;
+      let value;
+      try { value = decodeURIComponent(encoded); } catch { return null; }
+      if (value === 'personal' || boundedId(value)) selected = value;
+      else return null;
+    }
+    return selected === undefined ? null : selected;
+  };
+
+  const decodeJwtPayload = (token) => {
+    if (typeof token !== 'string' || token.length > 16384) return null;
+    const pieces = token.split('.');
+    if (pieces.length !== 3 || pieces.some((piece) => !/^[A-Za-z0-9_-]+$/.test(piece))) return null;
+    const encoded = pieces[1];
+    if (encoded.length > 8192 || encoded.length % 4 === 1) return null;
+    try {
+      const padded = encoded.replace(/-/g, '+').replace(/_/g, '/')
+        + '='.repeat((4 - (encoded.length % 4)) % 4);
+      const binary = atob(padded);
+      const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+      const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+      const value = JSON.parse(text);
+      return plainObject(value) ? value : null;
+    } catch { return null; }
+  };
+
+  const setupAdapter = () => ({
+    parseSession(value, selection) {
+      if (!plainObject(value) || !plainObject(value.user) || !plainObject(value.account)
+        || !boundedId(value.user.id) || !boundedId(value.account.id)
+        || Object.hasOwn(value, 'error') || Object.hasOwn(value, 'workspaceTokenExchangeError')
+        || value.user.id !== binding?.principal_id || value.account.structure !== 'personal'
+        || (selection !== 'personal' && value.account.id !== selection)) return null;
+      const payload = decodeJwtPayload(value.accessToken);
+      const auth = payload?.['https://api.openai.com/auth'];
+      if (!plainObject(auth) || auth.chatgpt_account_id !== value.account.id) return null;
+      return { principal_id: value.user.id, context_id: value.account.id };
+    },
+  });
+
   const adapterFor = (qualification) => {
+    if (plainObject(qualification) && keysExactly(qualification, ['adapter_id'])
+      && qualification.adapter_id === SETUP_ADAPTER_ID
+      && globalThis.location?.origin === 'https://chatgpt.com') return setupAdapter();
     if (!plainObject(qualification) || !keysExactly(qualification, ['adapter_id'])
       || qualification.adapter_id !== SYNTHETIC_ADAPTER_ID) return null;
     // The reserved synthetic origin is an additional gate: a real page can
@@ -114,6 +174,14 @@ export function pageCollector(command) {
     error.httpStatus = response.status;
     if (response.status === 429) error.retryAfter = retryAfter(response);
     throw error;
+  };
+  const setupResponseHeadersValid = (response) => {
+    if (!Number.isInteger(response?.status) || response.status < 200 || response.status >= 300) return true;
+    if (response.redirected === true || response.type === 'opaqueredirect') return false;
+    let contentType;
+    try { contentType = response.headers?.get?.('content-type'); } catch { return false; }
+    return typeof contentType === 'string'
+      && /^application\/json(?:\s*;\s*charset\s*=\s*[A-Za-z0-9._-]+)?\s*$/i.test(contentType);
   };
 
   const readResponse = async (response, limit, wait) => {
@@ -195,6 +263,8 @@ export function pageCollector(command) {
   let binding = null;
   let conversationId = null;
   let adapter = null;
+  let adapterMode = null;
+  let accountSelection = null;
   let sessionVerified = false;
   let bodyFetched = false;
   let sessionToken = null; // closure-only marker; never serialized or returned
@@ -211,7 +281,8 @@ export function pageCollector(command) {
   };
 
   const invoke = async (value) => {
-    if (globalThis.location?.origin !== 'https://miyo-catchup.invalid') return fail('unqualified_adapter');
+    const origin = globalThis.location?.origin;
+    if (origin !== 'https://miyo-catchup.invalid' && origin !== 'https://chatgpt.com') return fail('unqualified_adapter');
     if (!plainObject(value) || typeof value.operation !== 'string' || !ALLOWED_OPERATIONS.has(value.operation)) return fail('invalid_command');
     if (value.operation === 'abort') {
       if (!keysExactly(value, ['operation'])) return fail('invalid_command');
@@ -229,15 +300,29 @@ export function pageCollector(command) {
     if (closed) return fail('closed');
 
     if (value.operation === 'initialize') {
-      if (!keysExactly(value, ['operation', 'binding', 'conversation_id', 'qualification']) || initialized) return fail('invalid_command');
-      if (!plainObject(value.binding) || !keysExactly(value.binding, ['principal_id', 'context_id'])
-        || !boundedId(value.binding.principal_id) || !boundedId(value.binding.context_id)
-        || !boundedId(value.conversation_id)) return fail('invalid_binding');
+      if (initialized || !plainObject(value.binding)
+        || !keysExactly(value.binding, ['principal_id', 'context_id'])
+        || !boundedId(value.binding.principal_id)) return fail('invalid_binding');
       const selectedAdapter = adapterFor(value.qualification);
       if (!selectedAdapter) return fail('unqualified_adapter');
+      const setup = value.qualification.adapter_id === SETUP_ADAPTER_ID;
+      if (setup) {
+        if (origin !== 'https://chatgpt.com' || value.binding.context_id !== null
+          || !plainObject(value.qualification)
+          || !keysExactly(value, ['operation', 'binding', 'conversation_id', 'qualification'])
+          || !boundedId(value.conversation_id)) return fail('invalid_binding');
+        accountSelection = readAccountSelection();
+        if (accountSelection === null) return fail('context_mismatch');
+        adapterMode = 'setup';
+      } else {
+        if (!keysExactly(value, ['operation', 'binding', 'conversation_id', 'qualification'])
+          || !boundedId(value.binding.context_id) || !boundedId(value.conversation_id)) return fail('invalid_binding');
+        if (origin !== 'https://miyo-catchup.invalid') return fail('unqualified_adapter');
+        adapterMode = 'synthetic';
+      }
       initialized = true;
       binding = { principal_id: value.binding.principal_id, context_id: value.binding.context_id };
-      conversationId = value.conversation_id;
+      conversationId = setup ? null : value.conversation_id;
       adapter = selectedAdapter;
       return { ok: true };
     }
@@ -257,6 +342,7 @@ export function pageCollector(command) {
       if (expiryNow > Date.parse(permit.valid_until)) return fail('permit_expired');
       if (consumedPermits.has(permit.permit_id)) return fail('permit_replayed');
       if (transfer) return fail('buffer_not_drained');
+      if (adapterMode === 'setup' && permit.request_kind !== 'session_check') return fail('unqualified_adapter');
       const expectedArguments = permit.request_kind === 'session_check' ? [] : ['conversation_ids'];
       if (!keysExactly(permit.arguments, expectedArguments)) return fail('invalid_permit');
       if (permit.request_kind === 'body' && (!Array.isArray(permit.arguments.conversation_ids)
@@ -308,17 +394,25 @@ export function pageCollector(command) {
           if (closed || (error && error.name === 'AbortError')) return fail('aborted');
           return fail('network');
         }
+        if (adapterMode === 'setup' && !setupResponseHeadersValid(response)) return fail('invalid_response');
         const bytes = await readResponse(response, permit.request_kind === 'session_check' ? MAX_SESSION_BYTES : MAX_RESPONSE_BYTES, wait);
         if (closed) return fail('aborted');
         if (bytes.byteLength === 0) return fail('invalid_response');
         if (permit.request_kind === 'session_check') {
           const parsed = jsonFromBytes(bytes);
-          const outcome = adapter.parseSession(parsed);
-          if (!outcome || outcome.principal_id !== binding.principal_id || outcome.context_id !== binding.context_id) return fail('context_mismatch');
+          const currentSelection = adapterMode === 'setup' ? readAccountSelection() : null;
+          if (adapterMode === 'setup' && (currentSelection === null || currentSelection !== accountSelection)) return fail('context_mismatch');
+          const outcome = adapterMode === 'setup'
+            ? adapter.parseSession(parsed, accountSelection)
+            : adapter.parseSession(parsed);
+          if (!outcome || outcome.principal_id !== binding.principal_id
+            || (adapterMode === 'setup'
+              ? !boundedId(outcome.context_id)
+              : outcome.context_id !== binding.context_id)) return fail('context_mismatch');
           const sanitizedOutcome = { principal_id: outcome.principal_id, context_id: outcome.context_id };
           const sanitized = new TextEncoder().encode(JSON.stringify(sanitizedOutcome));
           const sessionDigest = await wait(digest(sanitized));
-          sessionToken = outcome.token;
+          if (adapterMode !== 'setup') sessionToken = outcome.token;
           sessionVerified = true;
           transfer = { bytes: sanitized, digest: sessionDigest, kind: 'session',
             chunk_count: Math.max(1, Math.ceil(sanitized.byteLength / MAX_RAW_CHUNK_BYTES)) };
@@ -347,6 +441,14 @@ export function pageCollector(command) {
     if (value.operation === 'pull') {
       if (!keysExactly(value, ['operation', 'sequence']) || !Number.isSafeInteger(value.sequence) || value.sequence < 0) return fail('invalid_command');
       if (!transfer) return fail('lost_buffer');
+      if (adapterMode === 'setup') {
+        const currentSelection = readAccountSelection();
+        if (currentSelection === null || currentSelection !== accountSelection) {
+          clearTransfer();
+          sessionVerified = false;
+          return fail('context_mismatch');
+        }
+      }
       if (value.sequence >= transfer.chunk_count) return fail('sequence_mismatch');
       if (value.sequence > expectedSequence) return fail('sequence_mismatch');
       const start = value.sequence * MAX_RAW_CHUNK_BYTES;
@@ -360,6 +462,14 @@ export function pageCollector(command) {
       if (!keysExactly(value, ['operation'])) return fail('invalid_command');
       if (activeController) return fail('busy');
       if (transfer && expectedSequence !== transfer.chunk_count) return fail('buffer_not_drained');
+      if (adapterMode === 'setup') {
+        const currentSelection = readAccountSelection();
+        if (currentSelection === null || currentSelection !== accountSelection) {
+          clearTransfer();
+          sessionVerified = false;
+          return fail('context_mismatch');
+        }
+      }
       if (transfer) clearTransfer();
       if (bodyFetched) sessionToken = null;
       return { ok: true };

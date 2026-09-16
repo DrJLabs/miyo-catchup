@@ -130,8 +130,8 @@ test('connection check and capture share one in-process flight guard', async () 
 });
 
 function popup(sendMessage) {
-  const nodes = new Map(['#status', '#start', '#check-connection', '#connection-status'].map((id) => [id, {
-    textContent: '', disabled: id === '#start', handlers: {},
+  const nodes = new Map(['#status', '#start', '#inspect-session', '#check-connection', '#connection-status'].map((id) => [id, {
+    textContent: '', disabled: id === '#start' || id === '#inspect-session', handlers: {},
     addEventListener(name, handler) { this.handlers[name] = handler; },
   }]));
   const context = vm.createContext({ document: { querySelector: (id) => nodes.get(id) },
@@ -178,4 +178,37 @@ test('popup isolates connection failures and late status replies during a pendin
   await settle();
   assert.equal(nodes.get('#connection-status').textContent.includes('SYNTHETIC'), false);
   assert.equal(nodes.get('#check-connection').disabled, false);
+});
+
+test('popup exposes setup inspection only for a setup-scoped ready status', async () => {
+  const calls = [];
+  const nodes = popup(async (message) => {
+    calls.push(message);
+    if (message.type === 'status') return { state: 'ready', reason_code: 'none', can_start: false,
+      can_inspect: true, scope: 'setup-inspection' };
+    return { state: 'setup_inspection_complete', reason_code: 'setup_inspection_complete',
+      can_start: false, can_inspect: false, scope: 'setup-inspection' };
+  });
+  await settle();
+  assert.equal(nodes.get('#start').disabled, true);
+  assert.equal(nodes.get('#inspect-session').disabled, false);
+  nodes.get('#inspect-session').handlers.click({ isTrusted: false });
+  assert.equal(calls.length, 1);
+  nodes.get('#inspect-session').handlers.click({ isTrusted: true });
+  await settle();
+  assert.deepEqual(calls.map((message) => message.type), ['status', 'inspect_session']);
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+  assert.equal(nodes.get('#start').disabled, true);
+});
+
+test('popup race keeps setup inspection disabled while a status request is pending', async () => {
+  let finishStatus;
+  const nodes = popup((message) => new Promise((resolve) => {
+    if (message.type === 'status') finishStatus = resolve;
+  }));
+  nodes.get('#inspect-session').handlers.click({ isTrusted: true });
+  assert.equal(nodes.get('#inspect-session').disabled, true);
+  finishStatus({ state: 'ready', can_start: false, can_inspect: true, scope: 'setup-inspection' });
+  await settle();
+  assert.equal(nodes.get('#inspect-session').disabled, false);
 });

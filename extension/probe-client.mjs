@@ -143,25 +143,35 @@ function failurePayload(value) {
  * result, lost ACK, or lost document ends the probe; it never fetches again.
  */
 export async function runProbe(options = {}) {
-  return runQualification(options, false);
+  return runQualification(options, 'conversation');
 }
 
 /** Session-only qualification: never advertise, claim, permit or dispatch body work. */
 export async function runSessionCheck(options = {}) {
-  return runQualification(options, true);
+  return runQualification(options, 'session');
+}
+
+/** Setup inspection discovers the current personal context without body work. */
+export async function runSetupInspection(options = {}) {
+  return runQualification(options, 'setup');
 }
 
 async function runQualification({ request, page, browserInstanceId, binding,
   conversationId,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  persistFailure, uuid = () => crypto.randomUUID() }, sessionOnly) {
+  persistFailure, uuid = () => crypto.randomUUID() }, mode) {
+  const sessionOnly = mode === 'session' || mode === 'setup';
+  const setupOnly = mode === 'setup';
   if (typeof request !== 'function' || typeof page?.call !== 'function'
     || typeof persistFailure !== 'function' || typeof wait !== 'function') reject();
   text(browserInstanceId, UUID);
   if (!sessionOnly) text(conversationId, ID);
   text(page.documentId, ID);
   keys(binding, ['principal_id', 'context_id']);
-  text(binding.principal_id, ID); text(binding.context_id, ID);
+  text(binding.principal_id, ID);
+  if (setupOnly) {
+    if (binding.context_id !== null) reject();
+  } else text(binding.context_id, ID);
   async function send(operation, payload, fence = {}) {
     const message = { protocol_version: 1, request_id: uuid(), operation, payload, ...fence };
     const reply = await request(message);
@@ -248,7 +258,10 @@ async function runQualification({ request, page, browserInstanceId, binding,
             outcome = JSON.parse(serialized);
           } catch { reject(); }
           keys(outcome, ['principal_id', 'context_id']);
-          if (outcome.principal_id !== binding.principal_id || outcome.context_id !== binding.context_id) reject();
+          text(outcome.principal_id, ID);
+          text(outcome.context_id, ID);
+          if (outcome.principal_id !== binding.principal_id
+            || (!setupOnly && outcome.context_id !== binding.context_id)) reject();
           // Do not forward hidden duplicate keys or discarded JSON bytes just
           // because the parsed object happens to have the expected identity.
           if (serialized !== JSON.stringify(outcome)) reject();
@@ -260,17 +273,24 @@ async function runQualification({ request, page, browserInstanceId, binding,
         if (ack.next_sequence !== sequence + 1) reject();
       }
       if (bytes !== result.raw_bytes) reject();
+      if (setupOnly) {
+        const released = await page.call({ operation: 'release' });
+        keys(released, ['ok']);
+        if (released.ok !== true) reject();
+      }
       const receipt = await send('commit_result', {
         raw_bytes: result.raw_bytes, chunk_count: result.chunk_count, sha256: result.sha256 }, fence);
       keys(receipt, ['artifact_id', 'raw_bytes', 'sha256']);
       text(receipt.artifact_id, UUID);
       if (receipt.raw_bytes !== result.raw_bytes || receipt.sha256 !== result.sha256) reject();
       receipts.push(receipt);
-      const released = await page.call({ operation: 'release' });
-      keys(released, ['ok']);
-      if (released.ok !== true) reject();
+      if (!setupOnly) {
+        const released = await page.call({ operation: 'release' });
+        keys(released, ['ok']);
+        if (released.ok !== true) reject();
+      }
     }
-    return { state: sessionOnly ? 'session_check_complete' : 'probe_complete', receipts };
+    return { state: setupOnly ? 'setup_inspection_complete' : sessionOnly ? 'session_check_complete' : 'probe_complete', receipts };
   } catch (error) {
     // Chrome/fetch/transport exceptions may contain private page or path text.
     if (error instanceof ProbeClientError) throw error;

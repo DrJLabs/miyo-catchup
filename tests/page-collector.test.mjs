@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -10,6 +10,9 @@ const CONTEXT = 'context-synthetic';
 const CONVERSATION = 'conversation-synthetic';
 const AUTH_SENTINEL = 'AUTH_TOKEN_SENTINEL';
 const COOKIE_SENTINEL = 'COOKIE_SENTINEL';
+const SETUP_PRINCIPAL = 'setup-principal';
+const SETUP_CONTEXT = 'setup-personal-context';
+const SETUP_ADAPTER = 'chatgpt-setup-2026-09-16';
 const SESSION_PERMIT = '11111111-1111-4111-8111-111111111111';
 const BODY_PERMIT = '22222222-2222-4222-8222-222222222222';
 const EXPIRED_PERMIT = '33333333-3333-4333-8333-333333333333';
@@ -44,18 +47,37 @@ function sessionResponse({ principal = PRINCIPAL, context = CONTEXT } = {}) {
   }));
 }
 
+function jwtFor(context = SETUP_CONTEXT, payload = {}) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({
+    'https://api.openai.com/auth': { chatgpt_account_id: context }, ...payload,
+  })}.signature`;
+}
+
+function setupSessionResponse({ principal = SETUP_PRINCIPAL, context = SETUP_CONTEXT,
+  structure = 'personal', accessToken = jwtFor(context), headers = { 'content-type': 'application/json' },
+  sessionFields = {}, ...responseOptions } = {}) {
+  const response = responseFromBytes(JSON.stringify({
+    user: { id: principal }, account: { id: context, structure }, accessToken,
+    token: AUTH_SENTINEL, cookie: COOKIE_SENTINEL, ...sessionFields,
+  }), null, 200, headers);
+  return Object.assign(response, responseOptions);
+}
+
 function bodyResponse(content = 'synthetic body', parts = null) {
   return responseFromBytes(JSON.stringify({
     conversation: { id: CONVERSATION }, content,
   }), parts);
 }
 
-function makeRealm(fetchImpl, timer = setTimeout) {
+function makeRealm(fetchImpl, timer = setTimeout, { origin = 'https://miyo-catchup.invalid', cookie } = {}) {
   let monotonic = 0;
   const context = vm.createContext({
     AbortController,
     TextDecoder,
     TextEncoder,
+    atob,
+    btoa,
     crypto: {
       subtle: {
         digest: async (_algorithm, bytes) => createHash('sha256').update(Buffer.from(bytes)).digest(),
@@ -63,7 +85,8 @@ function makeRealm(fetchImpl, timer = setTimeout) {
     },
     fetch: fetchImpl,
     performance: { now: () => monotonic },
-    location: { origin: 'https://miyo-catchup.invalid' },
+    location: { origin },
+    document: { cookie },
     setTimeout: timer,
     clearTimeout,
     __MIYO_CATCHUP_SYNTHETIC_TEST__: true,
@@ -86,6 +109,15 @@ function initialize() {
     binding: { principal_id: PRINCIPAL, context_id: CONTEXT },
     conversation_id: CONVERSATION,
     qualification: { adapter_id: 'synthetic-v1' },
+  };
+}
+
+function setupInitialize() {
+  return {
+    operation: 'initialize',
+    binding: { principal_id: SETUP_PRINCIPAL, context_id: null },
+    conversation_id: CONVERSATION,
+    qualification: { adapter_id: SETUP_ADAPTER },
   };
 }
 
@@ -153,6 +185,144 @@ test('AC01/AC02 session is a separate sanitized transfer and body uses one fixed
   assert.deepEqual(JSON.parse(calls[1].options.body), { conversation_ids: [CONVERSATION] });
   assert.deepEqual(Object.keys(calls[1].options.headers).sort(), ['authorization', 'content-type']);
   assert.equal(calls[1].options.headers.authorization, `Bearer ${AUTH_SENTINEL}`);
+});
+
+test('setup inspection is ChatGPT-only, personal-only, sanitized, and never admits body work', async () => {
+  const calls = [];
+  const realm = makeRealm(async (url, options) => {
+    calls.push({ url, options });
+    return url === '/api/auth/session' ? setupSessionResponse() : bodyResponse();
+  }, setTimeout, { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  assert.deepEqual(await realm.call(setupInitialize()), { ok: true });
+  const session = await realm.call(permit('session_check', SESSION_PERMIT));
+  assert.equal(session.ok, true);
+  const bytes = await pullAll(realm);
+  assert.deepEqual(JSON.parse(bytes.toString('utf8')), {
+    principal_id: SETUP_PRINCIPAL, context_id: SETUP_CONTEXT,
+  });
+  assert.doesNotMatch(bytes.toString('utf8'), /AUTH_TOKEN|COOKIE/);
+  assert.deepEqual(await realm.call({ operation: 'release' }), { ok: true });
+  assert.deepEqual(await realm.call(permit('body', BODY_PERMIT, { conversation_ids: [CONVERSATION] })),
+    { ok: false, error: { failure_class: 'schema_changed' } });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/api/auth/session');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.equal(calls[0].options.credentials, 'same-origin');
+});
+
+test('setup inspection rejects origin, body attempts, wrong principal, nonpersonal and malformed JWT before exposure', async () => {
+  const wrongOrigin = makeRealm(async () => setupSessionResponse(), setTimeout,
+    { origin: 'https://miyo-catchup.invalid', cookie: '_account=personal' });
+  assert.deepEqual(await wrongOrigin.call(setupInitialize()),
+    { ok: false, error: { failure_class: 'schema_changed' } });
+  for (const response of [
+    setupSessionResponse({ principal: 'wrong-principal' }),
+    setupSessionResponse({ structure: 'workspace' }),
+    setupSessionResponse({ accessToken: 'not-a-jwt' }),
+    setupSessionResponse({ accessToken: jwtFor('other-context') }),
+    setupSessionResponse({ sessionFields: { error: 'session-error' } }),
+    setupSessionResponse({ sessionFields: { workspaceTokenExchangeError: 'exchange-error' } }),
+  ]) {
+    const realm = makeRealm(async () => response, setTimeout,
+      { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+    assert.deepEqual(await realm.call(setupInitialize()), { ok: true });
+    assert.deepEqual(await realm.call(permit('session_check', randomUUID())),
+      { ok: false, error: { failure_class: 'identity_mismatch' } });
+  }
+});
+
+test('setup inspection fails closed for absent, duplicate, malformed, or foreign account selection', async () => {
+  for (const cookie of [undefined, '', '_account=personal; _account=personal',
+    '_account=%E0%A4%A']) {
+    const realm = makeRealm(async () => setupSessionResponse(), setTimeout,
+      { origin: 'https://chatgpt.com', cookie });
+    assert.deepEqual(await realm.call(setupInitialize()),
+      { ok: false, error: { failure_class: 'identity_mismatch' } });
+  }
+  const foreign = makeRealm(async () => setupSessionResponse(), setTimeout,
+    { origin: 'https://chatgpt.com', cookie: '_account=workspace-other' });
+  await foreign.call(setupInitialize());
+  assert.deepEqual(await foreign.call(permit('session_check', randomUUID())),
+    { ok: false, error: { failure_class: 'identity_mismatch' } });
+  const exact = makeRealm(async () => setupSessionResponse(), setTimeout,
+    { origin: 'https://chatgpt.com', cookie: `_account=${SETUP_CONTEXT}` });
+  assert.deepEqual(await exact.call(setupInitialize()), { ok: true });
+  assert.equal((await exact.call(permit('session_check', randomUUID()))).ok, true);
+});
+
+test('setup inspection detects account selection changes after response and before pull', async () => {
+  const realm = makeRealm(async () => setupSessionResponse(), setTimeout,
+    { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  await realm.call(setupInitialize());
+  const dispatch = await realm.call(permit('session_check', randomUUID()));
+  assert.equal(dispatch.ok, true);
+  realm.context.document.cookie = `_account=${SETUP_CONTEXT}`;
+  assert.deepEqual(await realm.call({ operation: 'pull', sequence: 0 }),
+    { ok: false, error: { failure_class: 'identity_mismatch' } });
+  assert.deepEqual(await realm.call({ operation: 'pull', sequence: 0 }),
+    { ok: false, error: { failure_class: 'aborted' } });
+});
+
+test('setup inspection rechecks selection on final release before any commit can occur', async () => {
+  const realm = makeRealm(async () => setupSessionResponse(), setTimeout,
+    { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  await realm.call(setupInitialize());
+  const dispatch = await realm.call(permit('session_check', randomUUID()));
+  assert.equal(dispatch.ok, true);
+  assert.equal((await realm.call({ operation: 'pull', sequence: 0 })).ok, true);
+  realm.context.document.cookie = `_account=${SETUP_CONTEXT}`;
+  assert.deepEqual(await realm.call({ operation: 'release' }),
+    { ok: false, error: { failure_class: 'identity_mismatch' } });
+  assert.deepEqual(await realm.call({ operation: 'pull', sequence: 0 }),
+    { ok: false, error: { failure_class: 'aborted' } });
+});
+
+test('setup inspection rejects a selection change while the session request is in flight', async () => {
+  let realm;
+  realm = makeRealm(async () => {
+    realm.context.document.cookie = `_account=${SETUP_CONTEXT}`;
+    return setupSessionResponse();
+  }, setTimeout, { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  await realm.call(setupInitialize());
+  assert.deepEqual(await realm.call(permit('session_check', randomUUID())),
+    { ok: false, error: { failure_class: 'identity_mismatch' } });
+});
+
+test('setup inspection requires JSON content and rejects observable redirects before parsing', async () => {
+  for (const response of [
+    setupSessionResponse({ headers: {} }),
+    setupSessionResponse({ redirected: true }),
+    setupSessionResponse({ type: 'opaqueredirect' }),
+  ]) {
+    const realm = makeRealm(async () => response, setTimeout,
+      { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+    await realm.call(setupInitialize());
+    const reply = await realm.call(permit('session_check', randomUUID()));
+    assert.deepEqual(reply, { ok: false, error: { failure_class: 'schema_changed' } });
+  }
+  const charset = makeRealm(async () => setupSessionResponse({
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  }), setTimeout, { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  await charset.call(setupInitialize());
+  assert.equal((await charset.call(permit('session_check', randomUUID()))).ok, true);
+});
+
+test('setup inspection preserves fixed status classification without JSON headers', async () => {
+  for (const [status, expected] of [[401, 'auth_required'], [403, 'challenge']]) {
+    const realm = makeRealm(async () => responseFromBytes('html error', [], status), setTimeout,
+      { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+    await realm.call(setupInitialize());
+    const reply = await realm.call(permit('session_check', randomUUID()));
+    assert.deepEqual(reply, { ok: false, error: { failure_class: expected, http_status: status } });
+  }
+  const throttled = makeRealm(async () => responseFromBytes('html error', [], 429,
+    { 'retry-after': '3601' }), setTimeout,
+  { origin: 'https://chatgpt.com', cookie: '_account=personal' });
+  await throttled.call(setupInitialize());
+  assert.deepEqual(await throttled.call(permit('session_check', randomUUID())), {
+    ok: false,
+    error: { failure_class: 'rate_limited', http_status: 429, retry_after: '3601' },
+  });
 });
 
 test('AC02 rejects context mismatch and standalone or foreign body permits before fetch', async () => {

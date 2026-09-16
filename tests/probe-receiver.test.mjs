@@ -12,6 +12,10 @@ const binding = Object.freeze({
   binding_id: 'binding-t02', principal_id: 'principal-t02',
   context_id: 'context-t02', account_id: 'account-t02',
 });
+const setupBinding = Object.freeze({
+  binding_id: 'binding-t02-setup', principal_id: binding.principal_id,
+  context_id: null, account_id: binding.principal_id,
+});
 const browser = '11111111-1111-4111-8111-111111111111';
 const documentId = 'owned-document-1';
 const conversationId = 'conversation-t02';
@@ -57,6 +61,18 @@ function sessionOnlyFixture(t, options = {}) {
   return { root, receiver, time };
 }
 
+function setupInspectionFixture(t, options = {}) {
+  const root = temporaryRoot(t);
+  const time = clockFixture();
+  const receiver = createProbeReceiver({
+    root, trustedBoundary: root, binding: setupBinding, conversationId,
+    clock: time.clock, scope: 'setup-inspection', ownership: () => true,
+    ...options,
+  });
+  t.after(() => receiver.close());
+  return { root, receiver, time };
+}
+
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -75,23 +91,33 @@ function hello(receiver) {
 
 function sessionStart(receiver) {
   hello(receiver);
-  const claim = receiver.request(makeRequest('claim_work', {
+  const claimRequest = makeRequest('claim_work', {
     browser_instance_id: browser, principal_id: null, context_id: null,
-  }));
+  });
+  const claim = receiver.request(claimRequest);
   assertReply(claim, 'claim_work');
   const fields = claim.result.lease;
   const fenced = { run_id: fields.run_id, attempt_id: fields.attempt_id, lease_generation: fields.lease_generation };
-  const permit = receiver.request(makeRequest('request_permit', { work_unit_id: fields.work_unit }, fenced));
+  const permitRequest = makeRequest('request_permit', { work_unit_id: fields.work_unit }, fenced);
+  const permit = receiver.request(permitRequest);
   assertReply(permit, 'request_permit');
-  const started = receiver.request(makeRequest('dispatch_started', {
+  const dispatchRequest = makeRequest('dispatch_started', {
     browser_instance_id: browser, document_id: documentId,
-  }, { ...fenced, permit_id: permit.result.permit_id }));
+  }, { ...fenced, permit_id: permit.result.permit_id });
+  const started = receiver.request(dispatchRequest);
   assertReply(started, 'dispatch_started');
-  return { fields: fenced, permit: permit.result, documentId };
+  return {
+    fields: fenced, permit: permit.result, documentId,
+    requests: { claim: claimRequest, permit: permitRequest, dispatch: dispatchRequest },
+  };
 }
 
 function sendJson(receiver, transfer, value) {
   const bytes = Buffer.from(JSON.stringify(value));
+  return sendBytes(receiver, transfer, bytes);
+}
+
+function sendBytes(receiver, transfer, bytes) {
   const data = bytes.toString('base64');
   const chunk = receiver.request(makeRequest('result_chunk', {
     sequence: 0, decoded_bytes: bytes.length, data,
@@ -142,6 +168,33 @@ test('T02 positive session then one pinned body preserves exact bytes and report
   assert.equal(snapshot.sha256, body.digest);
   const artifact = join(root, 'artifacts', `${bodyCommit.result.artifact_id}.json`);
   assert.deepEqual(readFileSync(artifact), body.bytes);
+});
+
+test('T02 body preserves valid noncanonical JSON bytes while session remains canonical', (t) => {
+  const { receiver, time, root } = receiverFixture(t);
+  const session = sessionStart(receiver);
+  const sessionRaw = sendJson(receiver, session, { principal_id: binding.principal_id, context_id: binding.context_id });
+  assert.equal(commit(receiver, session, sessionRaw.bytes, sessionRaw.digest).ok, true);
+
+  time.value.wall += 10_000;
+  time.value.monotonic += 10_000;
+  const claim = receiver.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: binding.principal_id, context_id: binding.context_id,
+  }));
+  const lease = claim.result.lease;
+  const fields = { run_id: lease.run_id, attempt_id: lease.attempt_id, lease_generation: lease.lease_generation };
+  const permit = receiver.request(makeRequest('request_permit', { work_unit_id: lease.work_unit }, fields));
+  const started = receiver.request(makeRequest('dispatch_started', {
+    browser_instance_id: browser, document_id: documentId,
+  }, { ...fields, permit_id: permit.result.permit_id }));
+  assert.equal(started.ok, true);
+
+  const bodyBytes = Buffer.from(`{\n  "conversation_id": "${conversationId}",\n  "messages": [{"role":"user","content":"snow \\u96ea"}]\n}`);
+  const body = sendBytes(receiver, { fields, permit: permit.result }, bodyBytes);
+  const committed = commit(receiver, { fields, permit: permit.result }, bodyBytes, body.digest);
+  assert.equal(committed.ok, true, JSON.stringify(committed));
+  assert.equal(receiver.snapshot().sha256, body.digest);
+  assert.deepEqual(readFileSync(join(root, 'artifacts', `${committed.result.artifact_id}.json`)), bodyBytes);
 });
 
 test('T02 session-only scope commits sanitized session and permanently blocks body work', (t) => {
@@ -196,6 +249,89 @@ test('T02 session-only scope does not require or invoke a body validator', (t) =
   t.after(() => reopened.close());
   assert.equal(reopened.snapshot().probe_complete, false);
   assert.equal(called, 0);
+});
+
+test('T02 setup-inspection commits one observed context without attestation or body promotion', (t) => {
+  const { root, receiver } = setupInspectionFixture(t);
+  const transfer = sessionStart(receiver);
+  const observed = { principal_id: setupBinding.principal_id, context_id: 'observed-context' };
+  const sessionRaw = sendJson(receiver, transfer, observed);
+  const sessionCommit = commit(receiver, transfer, sessionRaw.bytes, sessionRaw.digest);
+  assert.equal(sessionCommit.ok, true, JSON.stringify(sessionCommit));
+  const snapshot = receiver.snapshot();
+  assert.equal(snapshot.setup_complete, true);
+  assert.equal(snapshot.probe_complete, false);
+  assert.equal(snapshot.attested, false);
+  assert.equal(snapshot.session_committed, true);
+  assert.deepEqual(readFileSync(join(root, 'artifacts', `${sessionCommit.result.artifact_id}.json`)), sessionRaw.bytes);
+  assert.equal(setupBinding.context_id, null);
+
+  const stateDb = new DatabaseSync(join(root, 'probe-state.db'));
+  const stored = JSON.parse(stateDb.prepare('SELECT state FROM probe_state WHERE id = 1').get().state);
+  stateDb.close();
+  assert.equal(stored.scope, 'setup-inspection');
+  assert.equal(stored.attested, false);
+  assert.deepEqual(Object.keys(stored.session).sort(), ['artifact_id', 'artifact_path', 'raw_bytes', 'sha256', 'status']);
+  assert.notEqual(stored.binding_hash, createHash('sha256').update(canonical(setupBinding)).digest('hex'));
+
+  for (const request of [transfer.requests.claim, transfer.requests.permit, transfer.requests.dispatch,
+    makeRequest('claim_work', { browser_instance_id: browser, principal_id: null, context_id: null }),
+    makeRequest('request_permit', { work_unit_id: 'session-check' }, transfer.fields),
+    makeRequest('dispatch_started', { browser_instance_id: browser, document_id: documentId }, {
+      ...transfer.fields, permit_id: transfer.permit.permit_id,
+    })]) {
+    assert.deepEqual(receiver.request(request).error, { code: 'blocked' });
+  }
+
+  receiver.close();
+  const reopened = createProbeReceiver({
+    root, trustedBoundary: root, binding: setupBinding, conversationId,
+    scope: 'setup-inspection', ownership: () => true,
+  });
+  t.after(() => reopened.close());
+  assert.equal(reopened.snapshot().setup_complete, true);
+  assert.equal(reopened.snapshot().probe_complete, false);
+  assert.equal(reopened.snapshot().attested, false);
+  assert.deepEqual(reopened.request(transfer.requests.claim).error, { code: 'blocked' });
+  assert.deepEqual(reopened.request(makeRequest('claim_work', {
+    browser_instance_id: browser, principal_id: null, context_id: null,
+  })).error, { code: 'blocked' });
+});
+
+test('T02 setup-inspection requires a null context and account-to-principal mapping', (t) => {
+  const root = temporaryRoot(t);
+  assert.throws(() => createProbeReceiver({
+    root, trustedBoundary: root, binding: { ...setupBinding, context_id: 'configured-context' },
+    conversationId, scope: 'setup-inspection', ownership: () => true,
+  }), /context_id/);
+  assert.throws(() => createProbeReceiver({
+    root, trustedBoundary: root, binding: { ...setupBinding, account_id: 'other-account' },
+    conversationId, scope: 'setup-inspection', ownership: () => true,
+  }), /account_id/);
+  assert.equal(readdirSync(root).length, 0);
+});
+
+test('T02 session transfers must be canonical UTF-8 JSON in every scope', (t) => {
+  for (const [scope, scopeBinding, validateBody] of [
+    ['conversation', binding, () => true],
+    ['session-only', binding, undefined],
+    ['setup-inspection', setupBinding, undefined],
+  ]) {
+    const root = temporaryRoot(t);
+    const time = clockFixture();
+    const receiver = createProbeReceiver({
+      root, trustedBoundary: root, binding: scopeBinding, conversationId, clock: time.clock,
+      scope, ownership: () => true, validateBody,
+    });
+    const transfer = sessionStart(receiver);
+    const observedContext = scope === 'setup-inspection' ? 'observed-context' : scopeBinding.context_id;
+    const raw = Buffer.from(`{"principal_id":"${scopeBinding.principal_id}","context_id":"${observedContext}","context_id":"${observedContext}"}`);
+    const chunk = sendBytes(receiver, transfer, raw);
+    const result = commit(receiver, transfer, raw, chunk.digest);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'invalid_body');
+    receiver.close();
+  }
 });
 
 test('T02 session-only scope rejects invalid construction before effects', (t) => {

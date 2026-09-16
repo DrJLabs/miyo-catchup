@@ -7,8 +7,9 @@ ChatGPT sync left disconnected.
 private-path validation and SQLite/process-ownership qualification are
 implemented and tested. T02 adds an MV3 qualification package,
 native-host entry point and private-socket/staging modules, not a live-qualified
-extension or service. Real ChatGPT adapters
-remain fail-closed. Loading the private handoff package is operator-confirmed,
+extension or service. Real ChatGPT body capture remains fail-closed; a separately
+approved one-shot setup inspection can establish sanitized identity evidence.
+Loading the private handoff package is operator-confirmed,
 not a completed browser proof. A private status-only native host/foreground
 endpoint is prepared; an operator screenshot confirms the Chrome-to-native
 local-status check passed with capture disabled. Authenticated capture remains

@@ -10,8 +10,9 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
 
 - `extension/page-collector.mjs`: fixed serializable MAIN-world function;
   separately permitted session/body operations, page-local credentials, bounded
-  response buffering and pull/release transfer. Only a reserved synthetic-origin
-  adapter is available. Real ChatGPT initialization fails closed.
+  response buffering and pull/release transfer. Full session/body qualification
+  remains synthetic-only. A fixed, separately configured real-page setup adapter
+  permits one sanitized session inspection; it refuses all body work.
 - `extension/browser-bridge.mjs`: explicit creation of one inactive owned tab,
   top-frame/document targeting, persistent sanitized ownership evidence, and
   rejection after navigation or restart uncertainty. It never adopts existing
@@ -24,14 +25,18 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
   flow; it cannot reconnect, refetch, enumerate a catalog, or publish. The separate
   `runSessionCheck` entry advertises/claims only a session check and stops after
   its durable receipt with `session_check_complete`, never `probe_complete`.
-  Both paths reject oversized, multi-chunk, noncanonical or extra-field session
+  The separate `runSetupInspection` path records an observed context for one
+  expected principal, then stops with `setup_inspection_complete`. All paths
+  reject oversized, multi-chunk, noncanonical or extra-field session
   outcomes before native forwarding; only the exact configured identity/context
-  outcome may cross that boundary.
+  outcome may cross that boundary (setup permits only the initially unknown
+  context ID to be observed).
 - `extension/manifest.json`, `background.mjs`, `probe-controller.mjs` and popup:
   minimal MV3 qualification package, exact internal-popup sender, explicit Start
   gesture, closed private configuration and persistent one-attempt fence. Startup
-  has no native/tab/alarm/fetch effect. The reviewed live-adapter registry is
-  empty; storage configuration alone cannot enable real-page capture.
+  has no native/tab/alarm/fetch effect. The full-capture adapter registry is
+  empty; storage configuration alone cannot enable real-page capture or setup.
+  Setup requires private packaged configuration and its distinct popup gesture.
 - `extension/connection-check.mjs`: explicit popup-only local transport check.
   It sends one protocol-v1 `get_status` request, accepts only fresh status from
   the capture-disabled qualification endpoint, and closes the native port.
@@ -42,6 +47,10 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
   operation is blocked. The launcher reuses the private native-host configuration,
   holds an OS `flock`, verifies inherited kernel lock evidence, and expires after
   ten minutes. It does not launch from the native host or install a service.
+- `src/setup-inspection-entry.mjs`: separately configured foreground setup owner.
+  It reuses the bounded lifetime and OS ownership checks, validates private
+  setup/native-host configurations, and keeps the runtime socket directory
+  separate from durable setup staging. It never starts automatically.
 - `src/native-host.mjs`: exact caller-origin and manifest-object validation,
   bounded native framing, serial forwarding through an injected worker
   connector, and sanitized transport failures. It does not register a host or
@@ -70,11 +79,15 @@ checkpoint remains in [the implementation plan](implementation-plan.md#definitio
   The session-only binding hash also prevents older conversation-only code from
   reopening it. Session-only scope needs no body validator and ignores any
   supplied callback.
+  The distinct `setup-inspection` scope similarly refuses body work and scope
+  promotion, pins the expected historical principal with an unknown context,
+  and terminates as `setup_complete` without attestation or probe completion.
 
 Session transfer contains only `{principal_id, context_id}` after page-side
 validation. Conversation bytes are transferred with their original UTF-8 digest,
-not a reserialized JSON digest. Completion means `probe_complete` only; it never
-means catalog-complete, imported, indexed, or verified.
+not a reserialized JSON digest. Only conversation scope can complete as
+`probe_complete`; setup/session completion is not body capture. None means
+catalog-complete, imported, indexed, or verified.
 
 ## Local connection checkpoint
 
@@ -116,16 +129,28 @@ never caller-selectable wire options.
 
 ## Remaining A2 gate
 
-The source-only session qualification slice is not wired into the installed popup
-and ships no real ChatGPT adapter. It does not infer a context ID from a display
-label or configuration. Before assembling its private package, establish the
-current session response fields/content type, a reliable observed effective
+The strict session qualification slice does not infer a context ID from a display
+label or configuration. Before a strictly bound session/body proof, establish
+the current session response fields/content type, a reliable observed effective
 workspace/context source, and the read-only principal-to-Miyo-account mapping.
 The local connection pass and visible personal-account UI are not substitutes.
 Session-only completion means a sanitized session receipt, not body capture,
 validated Miyo mapping, or completion of T02. A later body proof requires a
 separately scoped private root and the reviewed session/body adapter; a session-only
 root must never be promoted or reset into it.
+
+The operator-approved setup inspection resolves the initial unknown-context
+bootstrap separately. It starts with a unique historical Miyo account candidate
+as the expected principal and `context_id: null`, obtains one permitted session
+response in the page, and can store only the sanitized principal and observed
+context ID. Its fixed personal-account inspection checks the page-local workspace
+selection and token account scope without exporting either. Missing, ambiguous,
+changed or mismatched evidence blocks the attempt. Setup success never enables
+the conversation probe and never promotes its private root into capture state.
+The selected conversation remains pinned but is not requested during setup.
+The client validates the final page handoff before committing setup evidence;
+a changed selection or lost reply stops without retry. This records a snapshot,
+not an atomic cross-process guarantee that the account cannot change afterward.
 
 Before a live proof:
 
@@ -170,6 +195,15 @@ were copied into the repository. The production collector remains disabled until
 the selected conversation/profile and current context contract are qualified.
 
 ## Official API basis, not qualification evidence
+
+The setup inspection contract was informed by the selected page's
+[public first-party account/session implementation](https://chatgpt.com/cdn/assets/4813494d-kikym8fjz981tn2m.js),
+observed on 2026-09-16. This unsupported web implementation is not a documented
+API guarantee. Its session account structure, principal/account identifiers,
+page-local workspace selection and token scope must agree in the actual setup
+attempt; a changed or missing field stops the attempt. Public source inspection
+does not establish the authenticated response content type, current identity or
+runtime compatibility. No vendor implementation is copied into this repository.
 
 Chrome documents native-endian framing, a caller-origin argument and exact
 `allowed_origins`; the host module applies the stricter application frame cap.

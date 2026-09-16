@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { createNativeClient, runProbe, runSessionCheck } from '../extension/probe-client.mjs';
+import { createNativeClient, runProbe, runSessionCheck, runSetupInspection } from '../extension/probe-client.mjs';
 import { assertReply, assertRequest, MAX_RAW_CHUNK_BYTES } from '../src/contracts.mjs';
 
 const binding = { principal_id: 'synthetic-user', context_id: 'synthetic-personal' };
 const browserInstanceId = randomUUID();
 const documentId = 'synthetic-document';
 
-function syntheticProbe({ loseCommit = false, failure, poison = false } = {}) {
+function syntheticProbe({ loseCommit = false, failure, poison = false, setup = false } = {}) {
+  const probeBinding = setup ? { principal_id: 'setup-principal', context_id: null } : binding;
+  const setupOutcome = { principal_id: probeBinding.principal_id, context_id: 'setup-context' };
   const messages = [];
   const pageCalls = [];
   const stored = [];
@@ -52,7 +54,7 @@ function syntheticProbe({ loseCommit = false, failure, poison = false } = {}) {
         assert.equal(messages.at(-1).operation, 'dispatch_started');
         assert.equal(command.permit.permit_id, permitId);
         if (failure) return { ok: false, error: failure };
-        bytes = Buffer.from(kind === 'session_check' ? JSON.stringify(binding)
+        bytes = Buffer.from(kind === 'session_check' ? JSON.stringify(setup ? setupOutcome : binding)
           : JSON.stringify({ conversation: { id: 'synthetic-conversation', text: 'λ🌲'.repeat(60000) } }));
         return { ok: true, raw_bytes: bytes.length, chunk_count: Math.ceil(bytes.length / MAX_RAW_CHUNK_BYTES),
           sha256: createHash('sha256').update(bytes).digest('hex'), ...(poison ? { token: 'secret-sentinel' } : {}) };
@@ -64,7 +66,7 @@ function syntheticProbe({ loseCommit = false, failure, poison = false } = {}) {
       default: assert.fail('unexpected page operation');
     }
   } };
-  return { messages, pageCalls, stored, waits, options: { request, page, binding, browserInstanceId,
+  return { messages, pageCalls, stored, waits, options: { request, page, binding: probeBinding, browserInstanceId,
     conversationId: 'synthetic-conversation',
     wait: async (ms) => waits.push(ms), persistFailure: async (value) => stored.push(structuredClone(value)) } };
 }
@@ -126,6 +128,73 @@ test('session-only qualification advertises and dispatches only one session, the
   assert.equal(fixture.messages.filter((message) => message.operation === 'commit_result').length, 1);
   assert.deepEqual(fixture.pageCalls, ['dispatch', 'pull', 'release', 'abort']);
   assert.deepEqual(fixture.waits, []);
+});
+
+test('setup inspection accepts a discovered context and never requests body work', async () => {
+  const fixture = syntheticProbe({ setup: true });
+  delete fixture.options.conversationId;
+  let released = false;
+  const pageCall = fixture.options.page.call;
+  fixture.options.page.call = async (command) => {
+    if (command.operation === 'release') released = true;
+    return pageCall(command);
+  };
+  const request = fixture.options.request;
+  fixture.options.request = async (message) => {
+    if (message.operation === 'commit_result') assert.equal(released, true);
+    return request(message);
+  };
+  const result = await runSetupInspection(fixture.options);
+  assert.equal(result.state, 'setup_inspection_complete');
+  assert.equal(result.receipts.length, 1);
+  assert.deepEqual(fixture.messages[0].payload.capabilities, ['session_check', 'chunking']);
+  assert.equal(fixture.messages.filter((message) => message.operation === 'claim_work').length, 1);
+  assert.equal(fixture.messages.filter((message) => message.operation === 'request_permit').length, 1);
+  assert.deepEqual(fixture.pageCalls, ['dispatch', 'pull', 'release', 'abort']);
+  assert.equal(fixture.waits.length, 0);
+});
+
+test('setup inspection does not commit after final page release loses context', async () => {
+  const fixture = syntheticProbe({ setup: true });
+  const pageCall = fixture.options.page.call;
+  fixture.options.page.call = async (command) => command.operation === 'release'
+    ? { ok: false, error: { failure_class: 'identity_mismatch' } }
+    : pageCall(command);
+  await assert.rejects(runSetupInspection(fixture.options), { code: 'invalid_probe_message' });
+  assert.equal(fixture.messages.filter((message) => message.operation === 'commit_result').length, 0);
+  assert.deepEqual(fixture.pageCalls, ['dispatch', 'pull', 'abort']);
+});
+
+test('setup inspection requires a null configured context and rejects an unexpected body permit', async () => {
+  const fixture = syntheticProbe({ setup: true });
+  fixture.options.binding.context_id = 'preconfigured-context';
+  await assert.rejects(runSetupInspection(fixture.options), { code: 'invalid_probe_message' });
+
+  const bodyPermit = syntheticProbe({ setup: true });
+  const original = bodyPermit.options.request;
+  bodyPermit.options.request = async (message) => {
+    const reply = await original(message);
+    if (message.operation === 'request_permit') {
+      reply.result.request_kind = 'body';
+      reply.result.arguments = { conversation_ids: ['synthetic-conversation'] };
+    }
+    return reply;
+  };
+  await assert.rejects(runSetupInspection(bodyPermit.options), { code: 'invalid_probe_message' });
+  assert.deepEqual(bodyPermit.pageCalls, ['abort']);
+});
+
+test('setup inspection rejects a returned principal mismatch before native chunks', async () => {
+  const fixture = syntheticProbe({ setup: true });
+  const original = fixture.options.page.call;
+  fixture.options.page.call = async (command) => {
+    const result = await original(command);
+    if (command.operation !== 'pull') return result;
+    const bytes = Buffer.from(JSON.stringify({ principal_id: 'wrong-principal', context_id: 'setup-context' }));
+    return { ...result, data: bytes.toString('base64'), decoded_bytes: bytes.length };
+  };
+  await assert.rejects(runSetupInspection(fixture.options), { code: 'invalid_probe_message' });
+  assert.equal(fixture.messages.some((message) => message.operation === 'result_chunk'), false);
 });
 
 test('session-only qualification stops on lost ACK and persists failures without a second dispatch', async () => {

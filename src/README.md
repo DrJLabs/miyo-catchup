@@ -35,6 +35,12 @@ is recorded only in the canonical implementation checkpoint.
   endpoint and a ten-minute foreground launcher under kernel-verified `flock`.
   It reuses explicit native-host configuration, has no capture/database/identity
   implementation, and blocks all operations other than global `get_status`.
+- `setup-inspection-entry.mjs`: separately configured foreground setup receiver,
+  using the same kernel-verified ownership and bounded lifetime. Its private
+  configuration pins an expected principal to the historical Miyo account and
+  leaves context explicitly unknown. It can persist one sanitized observed
+  context, cannot grant body work, and cannot promote that root to capture.
+  This is not a service, installer, importer or automatic worker launch.
 
 Framing validates before handing a message to a consumer. Callers must pass a
 validator that **throws** on rejection. Consume input sequentially using
